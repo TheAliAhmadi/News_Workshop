@@ -93,6 +93,7 @@ def main(argv=None):
     parser.add_argument('--headless', action='store_true', help='Run the local service without the launcher window')
     parser.add_argument('--url-file', help='Write the local address here once the service is ready')
     parser.add_argument('--self-test', action='store_true', help='Verify this installation and exit')
+    parser.add_argument('--report-file', help='Write the self-test JSON here, including in windowed builds')
     parser.add_argument('--classifier-check', action='store_true', help='Also download and run the default classifier during --self-test')
     parser.add_argument('--version', action='store_true', help='Print the version and exit')
     args = parser.parse_args(argv)
@@ -117,6 +118,8 @@ def main(argv=None):
                 report['classifier'] = offline_classifier_check()
         finally:
             service.stop()
+        if args.report_file:
+            Path(args.report_file).write_text(json.dumps(report, indent=2, default=str), encoding='utf-8')
         print(json.dumps(report, indent=2, default=str))
         return 0
 

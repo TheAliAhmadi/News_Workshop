@@ -10,6 +10,10 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   id-token: write
@@ -22,6 +26,7 @@ jobs:
   interface:
     name: Build the interface
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -43,6 +48,7 @@ jobs:
   verify:
     name: Backend tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -61,6 +67,7 @@ jobs:
     name: macOS package (Apple Silicon)
     needs: [interface, verify]
     runs-on: macos-14
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -80,6 +87,7 @@ jobs:
         run: python packaging/make_icons.py
 
       - name: Build the application and disk image
+        timeout-minutes: 20
         run: bash packaging/build_macos.sh
 
       - name: Sign and notarize
@@ -104,7 +112,19 @@ jobs:
           rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/AuthKey.p8"
 
       - name: Exercise the installed application
-        run: python packaging/smoke_test.py --app "dist/Research Workbench.app"
+        timeout-minutes: 20
+        run: python packaging/smoke_test.py --app "dist/Research Workbench.app" --output dist/smoke-macos.json
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-diagnostics
+          path: |
+            build/workbench/warn-workbench.txt
+            dist/self-test-*.json
+            dist/smoke-*.json
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:
@@ -119,6 +139,7 @@ jobs:
     name: Windows package (x64)
     needs: [interface, verify]
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -143,6 +164,7 @@ jobs:
         run: python packaging/make_icons.py
 
       - name: Build the application folder
+        timeout-minutes: 20
         run: pwsh -File packaging/build_windows.ps1 -SkipInstaller
 
       - name: Sign the executable
@@ -165,7 +187,19 @@ jobs:
         run: pwsh -File packaging/sign_windows.ps1 -Target Setup
 
       - name: Exercise the installed application
-        run: python packaging/smoke_test.py --app dist/ResearchWorkbench
+        timeout-minutes: 20
+        run: python packaging/smoke_test.py --app dist/ResearchWorkbench --output dist/smoke-windows.json
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-diagnostics
+          path: |
+            build/workbench/warn-workbench.txt
+            dist/self-test-*.json
+            dist/smoke-*.json
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:
@@ -177,9 +211,11 @@ jobs:
             THIRD_PARTY_NOTICES.md
 
   draft:
-    name: Draft release
+    name: Draft signed release
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.sign) || vars.ENABLE_RELEASE_SIGNING == 'true' }}
     needs: [macos, windows]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -213,6 +249,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
+          tag_name: ${{ github.ref_name }}
           name: Research Workbench ${{ github.ref_name }}
           body_path: dist/RELEASE_NOTES.md
           files: |

@@ -10,6 +10,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+$PSNativeCommandUseErrorActionPreference = $true
 
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -59,16 +60,8 @@ Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
 if (-not (Test-Path $appDir)) { throw "Expected $appDir to exist" }
 
 Write-Host '==> Verifying the packaged build'
-# The windowed executable detaches immediately, so wait for it and keep its output.
-$exe = Join-Path $appDir 'ResearchWorkbench.exe'
-$report = Join-Path $root 'dist\self-test-windows.json'
-$process = Start-Process -FilePath $exe -ArgumentList '--self-test' -NoNewWindow -Wait -PassThru `
-    -RedirectStandardOutput $report -RedirectStandardError 'dist\self-test-windows.err'
-if ($process.ExitCode -ne 0) {
-    Get-Content 'dist\self-test-windows.err' -ErrorAction SilentlyContinue
-    throw "The packaged build failed its self test (exit code $($process.ExitCode))."
-}
-Get-Content $report
+& $python packaging\check_installation.py --app $appDir --output dist\self-test-windows.json
+if ($LASTEXITCODE -ne 0) { throw 'The packaged build failed its self test.' }
 
 if (-not $SkipInstaller) {
     Build-Installer

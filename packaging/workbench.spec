@@ -60,7 +60,7 @@ for package in ('transformers', 'tokenizers', 'safetensors', 'huggingface-hub', 
 excludes = [
     'tensorflow', 'flax', 'jax', 'jaxlib', 'tensorboard', 'matplotlib', 'IPython', 'notebook',
     'pytest', 'playwright', 'tkinter.test', 'test', 'lib2to3', 'pydoc_data',
-    'torch.distributed', 'torch.testing', 'torchvision', 'torchaudio',
+    'torchvision', 'torchaudio',
 ]
 
 analysis = Analysis(

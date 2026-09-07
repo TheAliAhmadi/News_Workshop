@@ -167,7 +167,7 @@ def main(argv=None):
         cancellable = client.request('/api/jobs', {
             'tool': 'clean', 'input': long_input,
             'config': {'columns': ['title', 'description', 'content']},
-            'destination': {'root': root, 'path': '', 'filename': 'cancel_resume.csv', 'format': 'csv'}})
+            'destination': {'root': root, 'path': '', 'filename': 'cancel_resume_output.csv', 'format': 'csv'}})
         # Give the worker a moment to start, then cancel.
         time.sleep(0.4)
         client.request(f'/api/jobs/{cancellable["id"]}/cancel', {})

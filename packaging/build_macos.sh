@@ -31,8 +31,7 @@ if [ ! -d "$APP" ]; then
 fi
 
 echo "==> Verifying the packaged build"
-"$APP/Contents/MacOS/ResearchWorkbench" --self-test > dist/self-test-macos.json
-cat dist/self-test-macos.json
+"$PYTHON" packaging/check_installation.py --app "$APP" --output dist/self-test-macos.json
 
 echo "==> Creating the disk image"
 STAGING="$(mktemp -d)"

@@ -415,3 +415,34 @@ def test_model_preparation_surfaces_failures_without_leaking_details(tmp_path, m
     status = preparer.status()
     assert status['state'] == 'failed'
     assert 'hf_secret_value' not in status['error']
+
+
+def test_unattended_launcher_error_exits_without_a_dialog(monkeypatch, tmp_path):
+    import runpy
+    import launcher.main as launcher_main
+    monkeypatch.setenv('WORKBENCH_LOG_DIR', str(tmp_path / 'logs'))
+    monkeypatch.setattr(sys, 'argv', ['run_workbench.py', '--self-test'])
+    def fail():
+        raise RuntimeError('simulated missing packaged dependency')
+    monkeypatch.setattr(launcher_main, 'main', fail)
+    monkeypatch.setattr(launcher_main, '_report_startup_error', lambda *a: pytest.fail('Unattended process opened a dialog'))
+    with pytest.raises(SystemExit) as exited:
+        runpy.run_path(str(Path(__file__).resolve().parents[1] / 'run_workbench.py'), run_name='__main__')
+    assert exited.value.code == 1
+
+
+def test_self_test_writes_report_without_a_console(monkeypatch, tmp_path):
+    import launcher.main as launcher_main
+    class Service:
+        def __init__(self, **kwargs):
+            pass
+        def start(self):
+            pass
+        def stop(self):
+            pass
+    monkeypatch.setattr('launcher.service.BackendService', Service)
+    monkeypatch.setattr(launcher_main, 'attach_streams', lambda *a: None)
+    monkeypatch.setattr(launcher_main, 'self_test', lambda *a: {'interface_bundled': True})
+    report = tmp_path / 'report.json'
+    assert launcher_main.main(['--self-test', '--report-file', str(report)]) == 0
+    assert json.loads(report.read_text())['interface_bundled'] is True
