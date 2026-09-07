@@ -300,7 +300,28 @@ jobs:
       - name: Write the release notes
         run: python packaging/release_notes.py --output dist/RELEASE_NOTES.md
 
+      - name: Preserve already published releases
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if draft=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq .draft 2> "$RUNNER_TEMP/release-lookup.err"); then
+            if [ "$draft" = false ]; then
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              echo "This version is already published; its assets and visibility will be preserved."
+            else
+              echo "published=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            case "$(cat "$RUNNER_TEMP/release-lookup.err")" in
+              *"HTTP 404"*) echo "published=false" >> "$GITHUB_OUTPUT" ;;
+              *) cat "$RUNNER_TEMP/release-lookup.err" >&2; exit 1 ;;
+            esac
+          fi
+
       - name: Create the draft release
+        if: steps.existing.outputs.published != 'true'
         uses: softprops/action-gh-release@v2
         with:
           draft: true
