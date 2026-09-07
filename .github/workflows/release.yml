@@ -1,0 +1,224 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: 'Sign the application and installers (requires publisher accounts)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  # Sign when dispatching with sign=true, or when the repo variable is enabled for tag releases.
+  SHOULD_SIGN: ${{ (github.event_name == 'workflow_dispatch' && inputs.sign) || vars.ENABLE_RELEASE_SIGNING == 'true' }}
+
+jobs:
+  interface:
+    name: Build the interface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - working-directory: frontend
+        run: npm run typecheck
+      - working-directory: frontend
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: interface
+          path: frontend/out
+
+  verify:
+    name: Backend tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements-tested.txt -r requirements-dev.txt
+      - env:
+          WORKBENCH_SECURE_STORAGE: '0'
+        run: python -m pytest -q
+
+  macos:
+    name: macOS package (Apple Silicon)
+    needs: [interface, verify]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: interface
+          path: frontend/out
+
+      - name: Install pinned dependencies
+        run: pip install -r requirements-tested.txt -r requirements-build.txt
+
+      - name: Generate icons
+        run: python packaging/make_icons.py
+
+      - name: Build the application and disk image
+        run: bash packaging/build_macos.sh
+
+      - name: Sign and notarize
+        if: env.SHOULD_SIGN == 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          # Import the Developer ID certificate into a temporary keychain.
+          KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          security create-keychain -p "" "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          echo "${{ secrets.APPLE_CERTIFICATE_P12 }}" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN" -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
+          echo "$APPLE_API_KEY" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey.p8" bash packaging/sign_macos.sh
+          rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Exercise the installed application
+        run: python packaging/smoke_test.py --app "dist/Research Workbench.app"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-package
+          path: |
+            dist/*.dmg
+            dist/self-test-macos.json
+            dist/smoke-*.json
+            THIRD_PARTY_NOTICES.md
+
+  windows:
+    name: Windows package (x64)
+    needs: [interface, verify]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: interface
+          path: frontend/out
+
+      - name: Install pinned dependencies
+        run: |
+          pip install -r requirements-tested.txt
+          pip install -r requirements-build.txt
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Generate icons
+        run: python packaging/make_icons.py
+
+      - name: Build the application folder
+        run: pwsh -File packaging/build_windows.ps1 -SkipInstaller
+
+      - name: Sign the executable
+        if: env.SHOULD_SIGN == 'true'
+        env:
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          AZURE_CERTIFICATE_PROFILE: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+        run: pwsh -File packaging/sign_windows.ps1 -Target Exe
+
+      - name: Build the installer
+        run: pwsh -File packaging/build_windows.ps1 -InstallerOnly
+
+      - name: Sign the installer
+        if: env.SHOULD_SIGN == 'true'
+        env:
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          AZURE_CERTIFICATE_PROFILE: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+        run: pwsh -File packaging/sign_windows.ps1 -Target Setup
+
+      - name: Exercise the installed application
+        run: python packaging/smoke_test.py --app dist/ResearchWorkbench
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: |
+            dist/*Setup.exe
+            dist/self-test-windows.json
+            dist/smoke-*.json
+            THIRD_PARTY_NOTICES.md
+
+  draft:
+    name: Draft release
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+
+      - name: Collect installers and notices
+        run: |
+          mkdir -p dist
+          find assets -name '*.dmg' -o -name '*Setup.exe' | xargs -I{} cp {} dist/
+          find assets -name 'self-test-*.json' -o -name 'smoke-*.json' | xargs -I{} cp {} dist/ || true
+          # Prefer the notices regenerated during packaging over the checkout copy.
+          NOTICE="$(find assets -name THIRD_PARTY_NOTICES.md | head -n 1)"
+          if [ -n "$NOTICE" ]; then cp "$NOTICE" dist/THIRD_PARTY_NOTICES.md
+          else cp THIRD_PARTY_NOTICES.md dist/THIRD_PARTY_NOTICES.md
+          fi
+          ls -la dist
+
+      - name: Check sizes and write checksums
+        run: python packaging/release_assets.py dist/*.dmg dist/*Setup.exe
+
+      - name: Write the release notes
+        run: python packaging/release_notes.py --output dist/RELEASE_NOTES.md
+
+      - name: Create the draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: Research Workbench ${{ github.ref_name }}
+          body_path: dist/RELEASE_NOTES.md
+          files: |
+            dist/*.dmg
+            dist/*Setup.exe
+            dist/SHA256SUMS.txt
+            dist/THIRD_PARTY_NOTICES.md
+            dist/smoke-*.json
+            dist/self-test-*.json

@@ -1,0 +1,55 @@
+# Environments and secrets
+.venv/
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# Application runtime (never publish student or local state)
+.cache/
+.workbench/
+.recovery/
+.tmp-*/
+build_e2e/
+build_selftest/
+research_workspace/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/test-results/
+frontend/playwright-report/
+frontend/tsconfig.tsbuildinfo
+
+# Packaging outputs
+build/
+dist/
+*.dmg
+*Setup.exe
+*.pkg
+packaging/icons/*.icns
+packaging/icons/*.ico
+!packaging/icons/.gitkeep
+
+# Editor / OS
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+
+# Screenshots of real research (synthetic docs/assets only)
+docs/assets/*research*
+docs/assets/*screenshot*
+
+# Local tooling
+.uv/
+uv.lock

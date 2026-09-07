@@ -1,0 +1,13 @@
+pandas>=2.2,<3
+requests>=2.32,<3
+python-dotenv>=1,<2
+transformers>=4.48,<5
+torch>=2.6,<3
+openai>=1.82,<3
+pydantic>=2.10,<3
+scikit-learn>=1.5,<2
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+python-multipart>=0.0.20,<1
+jsonschema>=4.23,<5
+keyring>=25,<26
