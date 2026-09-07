@@ -23,6 +23,29 @@ env:
   SHOULD_SIGN: ${{ (github.event_name == 'workflow_dispatch' && inputs.sign) || vars.ENABLE_RELEASE_SIGNING == 'true' }}
 
 jobs:
+  preflight:
+    name: Check signing configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate publisher configuration
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          AZURE_CERTIFICATE_PROFILE: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+        run: python packaging/signing_preflight.py
+
   interface:
     name: Build the interface
     runs-on: ubuntu-latest
@@ -65,7 +88,7 @@ jobs:
 
   macos:
     name: macOS package (Apple Silicon)
-    needs: [interface, verify]
+    needs: [preflight, interface, verify]
     runs-on: macos-14
     timeout-minutes: 45
     steps:
@@ -98,14 +121,18 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        timeout-minutes: 30
         run: |
           # Import the Developer ID certificate into a temporary keychain.
           KEYCHAIN="$RUNNER_TEMP/build.keychain"
+          trap 'rm -f "$RUNNER_TEMP/certificate.p12" "$RUNNER_TEMP/AuthKey.p8"; security delete-keychain "$KEYCHAIN" || true' EXIT
           security create-keychain -p "" "$KEYCHAIN"
           security default-keychain -s "$KEYCHAIN"
           security unlock-keychain -p "" "$KEYCHAIN"
-          echo "${{ secrets.APPLE_CERTIFICATE_P12 }}" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN" -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: -s -k "" "$KEYCHAIN"
           echo "$APPLE_API_KEY" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
           APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey.p8" bash packaging/sign_macos.sh
@@ -113,7 +140,7 @@ jobs:
 
       - name: Exercise the installed application
         timeout-minutes: 20
-        run: python packaging/smoke_test.py --app "dist/Research Workbench.app" --output dist/smoke-macos.json
+        run: python packaging/test_installer.py --output dist/smoke-macos.json
 
       - name: Upload build diagnostics
         if: always()
@@ -137,7 +164,7 @@ jobs:
 
   windows:
     name: Windows package (x64)
-    needs: [interface, verify]
+    needs: [preflight, interface, verify]
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -167,28 +194,56 @@ jobs:
         timeout-minutes: 20
         run: pwsh -File packaging/build_windows.ps1 -SkipInstaller
 
+      - name: Authenticate publisher through Azure OIDC
+        if: env.SHOULD_SIGN == 'true'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Sign the executable
         if: env.SHOULD_SIGN == 'true'
-        env:
-          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
-          AZURE_CERTIFICATE_PROFILE: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
-        run: pwsh -File packaging/sign_windows.ps1 -Target Exe
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+          files: ${{ github.workspace }}\dist\ResearchWorkbench\ResearchWorkbench.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - name: Build the installer
         run: pwsh -File packaging/build_windows.ps1 -InstallerOnly
 
       - name: Sign the installer
         if: env.SHOULD_SIGN == 'true'
-        env:
-          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
-          AZURE_CERTIFICATE_PROFILE: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
-        run: pwsh -File packaging/sign_windows.ps1 -Target Setup
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+          files-folder: ${{ github.workspace }}\dist
+          files-folder-filter: '*Setup.exe'
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify publisher signatures
+        if: env.SHOULD_SIGN == 'true'
+        shell: pwsh
+        run: |
+          $files = @(Get-Item dist/ResearchWorkbench/ResearchWorkbench.exe) + @(Get-ChildItem dist/*Setup.exe)
+          if ($files.Count -ne 2) { throw 'Expected application and installer signatures.' }
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            if ($signature.Status -ne 'Valid') { throw "Invalid signature on $($file.Name): $($signature.Status)" }
+          }
 
       - name: Exercise the installed application
         timeout-minutes: 20
-        run: python packaging/smoke_test.py --app dist/ResearchWorkbench --output dist/smoke-windows.json
+        run: python packaging/test_installer.py --output dist/smoke-windows.json
 
       - name: Upload build diagnostics
         if: always()
@@ -211,8 +266,8 @@ jobs:
             THIRD_PARTY_NOTICES.md
 
   draft:
-    name: Draft signed release
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.sign) || vars.ENABLE_RELEASE_SIGNING == 'true' }}
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [macos, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -250,7 +305,8 @@ jobs:
         with:
           draft: true
           tag_name: ${{ github.ref_name }}
-          name: Research Workbench ${{ github.ref_name }}
+          prerelease: ${{ env.SHOULD_SIGN != 'true' }}
+          name: Research Workbench ${{ github.ref_name }}${{ env.SHOULD_SIGN != 'true' && ' — unsigned preview' || '' }}
           body_path: dist/RELEASE_NOTES.md
           files: |
             dist/*.dmg

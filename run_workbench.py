@@ -19,6 +19,8 @@ if __name__ == '__main__':
         from launcher.main import attach_streams, _report_startup_error
         from workbench import paths
         log_file = attach_streams(paths.user_log_dir())
+        import logging
+        logging.exception('Research Workbench startup failed')
         traceback.print_exc()
         if not any(arg in sys.argv for arg in ('--headless', '--self-test', '--multiprocessing-fork')):
             _report_startup_error('The application could not start. See the diagnostic log.', log_file)

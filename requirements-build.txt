@@ -1,4 +1,5 @@
 # Packaging-only dependencies. Not needed to run the application from source.
 -r requirements.txt
-pyinstaller>=6.11,<7
-pip-licenses>=5,<6
+pyinstaller==6.22.2
+pyinstaller-hooks-contrib==2026.7
+pip-licenses==5.5.5

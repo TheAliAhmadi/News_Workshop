@@ -87,12 +87,12 @@ class Client:
 
 def start(launcher, environment, url_file, timeout=240):
     """Start the packaged application headless and wait for its address."""
-    process = subprocess.Popen([str(launcher), '--headless', '--port', '0', '--url-file', str(url_file)],
-                               env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    process = subprocess.Popen([str(launcher), '--headless', '--port', '0', '--url-file', str(url_file), '--stop-file', str(url_file.with_suffix('.stop'))],
+                               env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise AssertionError(f'The launcher exited early:\n{process.stdout.read() if process.stdout else ""}')
+            raise AssertionError(f'The launcher exited early ({process.returncode}). See {environment["WORKBENCH_LOG_DIR"]}.')
         if url_file.exists():
             url = url_file.read_text(encoding='utf-8').strip()
             if url:
@@ -206,15 +206,20 @@ def main(argv=None):
 
         print('==> Diagnostics')
         report['diagnostics'] = client.request('/api/diagnostics')
+    except BaseException:
+        for log in (base / 'logs').glob('*.log'):
+            print(log.read_text(encoding='utf-8', errors='replace')[-20000:])
+        raise
     finally:
         if process and process.poll() is None:
             print('==> Stopping the application')
-            process.terminate()
+            url_file.with_suffix('.stop').touch()
             try:
                 process.wait(timeout=45)
             except subprocess.TimeoutExpired:
                 process.kill()
                 raise AssertionError('The application did not shut down when asked.')
+            assert process.returncode == 0, f'Launcher shutdown failed: {process.returncode}'
             report['exit_code'] = process.returncode
             # Quit must not leave a worker or second launcher behind.
             time.sleep(1.0)

@@ -17,6 +17,14 @@ Get the latest files from the [Releases](https://github.com/TheAliAhmadi/News_Wo
 
 Intel Macs and native Windows on ARM are not supported in this release.
 
+## Opening the unsigned preview
+
+This preview has no verified publisher certificate. Only approve the copy linked by your instructor from this repository.
+
+- **Mac:** After trying to open the installed app, open **System Settings → Privacy & Security**, find the message about Research Workbench, and choose **Open Anyway**. Confirm the prompt. [Apple's instructions](https://support.apple.com/en-gb/102445).
+- **Windows:** If SmartScreen says “Windows protected your PC,” choose **More info → Run anyway**, when offered. [Microsoft's explanation](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
+- School-managed devices and Windows Smart App Control may block unsigned software without an individual override. Ask the instructor or IT team if the approval option is unavailable. Do not turn off system protections.
+
 ## First launch
 
 1. Open **Research Workbench**. A small window shows startup progress, then your browser opens the workbench.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -65,7 +66,16 @@ def main(argv=None):
     args = parser.parse_args(argv)
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(TEMPLATE.format(version=args.version), encoding='utf-8')
+    notice = '' if os.environ.get('SHOULD_SIGN') == 'true' else (
+        '> **Unsigned preview:** No Apple or Microsoft publisher certificate is included. '
+        'Your computer may require approval before opening the installer/app. '
+        'On Mac, try opening the app, then use System Settings → Privacy & Security → Open Anyway. '
+        'On Windows, SmartScreen may offer More info → Run anyway. '
+        'Only approve the download supplied by your instructor from this repository. '
+        'Managed computers and Windows Smart App Control may block unsigned software; '
+        'ask your IT team if approval is unavailable. Do not disable system protections.\n\n'
+    )
+    output.write_text(notice + TEMPLATE.format(version=args.version), encoding='utf-8')
     print(f'Wrote {output}')
     return 0
 

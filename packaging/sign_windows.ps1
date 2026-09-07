@@ -17,6 +17,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+$PSNativeCommandUseErrorActionPreference = $true
 
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
@@ -29,7 +30,9 @@ $python = if ($env:PYTHON) { $env:PYTHON } else { 'python' }
 $version = & $python -c "import sys; sys.path.insert(0, '.'); from workbench.version import VERSION; print(VERSION)"
 
 Write-Host '==> Installing the signing tools'
-dotnet tool install --global sign --version '0.9.*' 2>$null
+if (-not (Get-Command sign -ErrorAction SilentlyContinue)) {
+    dotnet tool install --global sign --version '0.9.*'
+}
 $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
 
 $exe = "dist\ResearchWorkbench\ResearchWorkbench.exe"
@@ -57,5 +60,7 @@ foreach ($path in $targets) {
 
 Write-Host '==> Verifying signatures'
 foreach ($path in $targets) {
-    Get-AuthenticodeSignature $path | Format-List Status, StatusMessage, SignerCertificate
+    $signature = Get-AuthenticodeSignature $path
+    $signature | Format-List Status, StatusMessage, SignerCertificate
+    if ($signature.Status -ne 'Valid') { throw "Invalid signature on $path" }
 }

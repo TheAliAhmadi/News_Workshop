@@ -16,6 +16,7 @@ Python runtime: 3.12.12 (Python Software Foundation License).
 | MarkupSafe | 3.0.3 | BSD-3-Clause |
 | PyYAML | 6.0.3 | MIT License |
 | Pygments | 2.21.0 | BSD-2-Clause |
+| altgraph | 0.17.5 | MIT License |
 | annotated-doc | 0.0.5 | MIT |
 | annotated-types | 0.8.0 | MIT |
 | anyio | 4.15.1 | MIT |
@@ -43,6 +44,7 @@ Python runtime: 3.12.12 (Python Software Foundation License).
 | jsonschema | 4.26.0 | MIT |
 | jsonschema-specifications | 2025.9.1 | MIT |
 | keyring | 25.7.0 | MIT |
+| macholib | 1.16.4 | MIT License |
 | more-itertools | 11.1.0 | MIT |
 | mpmath | 1.3.0 | BSD License |
 | narwhals | 2.25.0 | MIT |
@@ -54,8 +56,10 @@ Python runtime: 3.12.12 (Python Software Foundation License).
 | pluggy | 1.6.0 | MIT License |
 | pydantic | 2.13.5 | MIT |
 | pydantic_core | 2.46.5 | MIT |
+| pyinstaller | 6.22.2 | GNU General Public License v2 (GPLv2) |
+| pyinstaller-hooks-contrib | 2026.7 | Apache Software License; GNU General Public License v2 (G… |
 | pytest | 9.1.1 | MIT |
-| python-dateutil | 2.9.0.post0 | BSD License |
+| python-dateutil | 2.9.0.post0 | Apache Software License; BSD License |
 | python-dotenv | 1.2.3 | BSD-3-Clause |
 | python-multipart | 0.0.32 | Apache-2.0 |
 | pytz | 2026.3.post1 | MIT License |
@@ -66,9 +70,8 @@ Python runtime: 3.12.12 (Python Software Foundation License).
 | safetensors | 0.8.0 | Apache Software License |
 | scikit-learn | 1.9.0 | BSD-3-Clause |
 | scipy | 1.18.1 | BSD License |
-| setuptools | 84.0.0 | MIT |
 | six | 1.17.0 | MIT License |
-| sniffio | 1.3.1 | MIT License |
+| sniffio | 1.3.1 | Apache Software License; MIT License |
 | starlette | 1.6.0 | BSD-3-Clause |
 | sympy | 1.14.0 | BSD License |
 | threadpoolctl | 3.6.0 | BSD License |

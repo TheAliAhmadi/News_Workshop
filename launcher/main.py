@@ -70,6 +70,16 @@ def self_test(service):
     import transformers
     from transformers import AutoTokenizer
     report['torch'] = torch.__version__
+    report['cuda_runtime'] = torch.version.cuda
+    if sys.platform == 'win32' and torch.version.cuda is not None:
+        raise RuntimeError('The Windows classroom build must use CPU-only PyTorch.')
+    # Importing tkinter alone cannot detect a missing Tcl/Tk runtime bundle.
+    import tkinter as tk
+    window = tk.Tk()
+    window.withdraw()
+    window.update_idletasks()
+    report['launcher_window'] = True
+    window.destroy()
     report['transformers'] = transformers.__version__
     report['tokenizer_backends'] = bool(AutoTokenizer)
     return report
@@ -92,6 +102,7 @@ def main(argv=None):
     parser.add_argument('--port', type=int, default=8765, help='Preferred local port')
     parser.add_argument('--headless', action='store_true', help='Run the local service without the launcher window')
     parser.add_argument('--url-file', help='Write the local address here once the service is ready')
+    parser.add_argument('--stop-file', help='Headless checks: shut down gracefully when this file appears')
     parser.add_argument('--self-test', action='store_true', help='Verify this installation and exit')
     parser.add_argument('--report-file', help='Write the self-test JSON here, including in windowed builds')
     parser.add_argument('--classifier-check', action='store_true', help='Also download and run the default classifier during --self-test')
@@ -130,7 +141,8 @@ def main(argv=None):
         # A second click reopens the workbench already running for this user.
         import webbrowser
         if running.url:
-            webbrowser.open(running.url)
+            if not args.headless:
+                webbrowser.open(running.url)
             return 0
         _report_startup_error(str(running), log_file)
         return 1
@@ -147,7 +159,7 @@ def main(argv=None):
                 Path(args.url_file).write_text(url, encoding='utf-8')
             print(url, flush=True)
             try:
-                while True:
+                while not (args.stop_file and Path(args.stop_file).exists()):
                     time.sleep(0.5)
             except KeyboardInterrupt:
                 pass

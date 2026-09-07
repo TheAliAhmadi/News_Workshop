@@ -4,17 +4,17 @@ Local classroom research tools for collecting news, classifying text, designing 
 
 ## Download for Mac
 
-[**Download for Mac**](https://github.com/TheAliAhmadi/News_Workshop/releases/latest) — Apple Silicon, macOS 14 or newer  
+[**Download for Mac**](https://github.com/TheAliAhmadi/News_Workshop/releases) — Apple Silicon, macOS 14 or newer
 File: `ResearchWorkbench-*-macOS-arm64.dmg`
 
-Open the disk image and drag **Research Workbench** into Applications.
+Open the disk image and drag **Research Workbench** into Applications. This is an **unsigned preview**; follow the [first-opening instructions](docs/student-guide.md#opening-the-unsigned-preview) if your computer asks for approval.
 
 ## Download for Windows
 
-[**Download for Windows**](https://github.com/TheAliAhmadi/News_Workshop/releases/latest) — Windows 11, 64-bit  
+[**Download for Windows**](https://github.com/TheAliAhmadi/News_Workshop/releases) — Windows 11, 64-bit
 File: `ResearchWorkbench-*-Windows-x64-Setup.exe`
 
-Run the setup file. It installs for your user account only.
+Run the setup file. It installs for your user account only. The unsigned preview may show a Windows publisher warning; see the [first-opening instructions](docs/student-guide.md#opening-the-unsigned-preview).
 
 If the Releases page has no assets yet, the first packaged build has not been published—use [source setup](#source-setup-instructors-and-contributors) meanwhile, or wait for a draft release from the Actions workflow.
 

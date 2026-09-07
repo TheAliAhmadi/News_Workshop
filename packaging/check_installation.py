@@ -26,7 +26,10 @@ def check(app, output, timeout=240):
             report = json.loads(output.read_text(encoding='utf-8'))
             assert report['health']['worker_ready'] and report['interface_bundled'], report
             print(json.dumps(report, indent=2))
-        except (subprocess.SubprocessError, OSError, ValueError, AssertionError):
+        except (subprocess.SubprocessError, OSError, ValueError, AssertionError) as error:
+            for output_text in (getattr(error, "stdout", None), getattr(error, "stderr", None)):
+                if output_text:
+                    print(output_text[-20000:])
             for log in (base / 'logs').glob('*.log'):
                 print(log.read_text(encoding='utf-8', errors='replace')[-20000:])
             raise
