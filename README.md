@@ -16,6 +16,8 @@ File: `ResearchWorkbench-*-Windows-x64-Setup.exe`
 
 Run the setup file. It installs for your user account only.
 
+If the Releases page has no assets yet, the first packaged build has not been published—use [source setup](#source-setup-instructors-and-contributors) meanwhile, or wait for a draft release from the Actions workflow.
+
 Intel Macs and native Windows on ARM are not included in this release. Classification runs on the CPU; no NVIDIA driver is required.
 
 ## Student quick start

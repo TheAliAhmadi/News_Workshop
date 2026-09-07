@@ -2,8 +2,9 @@
 
 Clicking the icon again must reopen the existing workbench rather than start a
 second backend against the same jobs and checkpoints. An exclusive lock on a
-file in the per-user data directory both enforces that and records the address
-of the instance already running, so the second click can open it.
+file in the per-user data directory enforces that. The live address is written
+to a sibling JSON file so a second launch can read it on Windows, where the
+locked byte of the lock file cannot be shared with another reader.
 """
 from __future__ import annotations
 
@@ -27,14 +28,19 @@ class SingleInstance:
         # Kept beside the jobs and settings it protects, so a separate state
         # directory is genuinely a separate application instance.
         self.path = Path(path) if path else paths.state_dir() / 'instance.lock'
+        self.info_path = self.path.with_name(self.path.stem + '.json')
         self.handle = None
 
     def _locked_elsewhere_url(self):
-        try:
-            value = json.loads(self.path.read_text(encoding='utf-8'))
-            return value.get('url') or ''
-        except (OSError, ValueError):
-            return ''
+        for candidate in (self.info_path, self.path):
+            try:
+                value = json.loads(candidate.read_text(encoding='utf-8'))
+                url = value.get('url') or ''
+                if url:
+                    return url
+            except (OSError, ValueError):
+                continue
+        return ''
 
     def acquire(self):
         """Take the lock, or raise AlreadyRunning with the existing address."""
@@ -57,11 +63,14 @@ class SingleInstance:
 
     def publish(self, url, pid=None):
         """Record the address so a second launch can open this instance."""
+        payload = json.dumps({'url': url, 'pid': pid or os.getpid()})
+        # Sibling file is readable while the lock file itself stays exclusively held.
+        self.info_path.write_text(payload, encoding='utf-8')
         if not self.handle:
             return
         self.handle.seek(0)
         self.handle.truncate()
-        self.handle.write(json.dumps({'url': url, 'pid': pid or os.getpid()}))
+        self.handle.write(payload)
         self.handle.flush()
         os.fsync(self.handle.fileno())
 
@@ -81,6 +90,10 @@ class SingleInstance:
         finally:
             self.handle.close()
             self.handle = None
+            try:
+                self.info_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def __enter__(self):
         return self.acquire()
