@@ -277,7 +277,7 @@ for number, (_, row) in enumerate(table.iterrows(), start=1):
     print(f"Row {{number}}:", answer)
 
 # 5. One new column per field, next to the original columns, then save.
-fields = pd.json_normalize(answers).add_prefix("{prefix}")
+fields = pd.json_normalize(answers).add_prefix("{prefix}field_")
 result = pd.concat([table.reset_index(drop=True), fields], axis=1)
 {save_line('result', output)}
 print(f"Saved {{len(result)}} rows to {{OUTPUT_FILE}}")
