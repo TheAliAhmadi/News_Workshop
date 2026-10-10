@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowRight,
   BrainCircuit,
   CheckCircle2,
   ChevronDown,
@@ -14,13 +15,15 @@ import {
   LoaderCircle,
   Play,
   Square,
+  Trash2,
   X,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Explorer, Modal, Preview } from "./explorer";
 import { FirstRunGuide } from "./first-run";
+import { FolderPicker } from "./folder-picker";
 import { KeyLinks } from "./key-links";
-import { KEY_NAMES, STEPS, stepOf } from "./steps";
+import { KEY_NAMES, NEXT_STEP, STEPS, stepOf } from "./steps";
 import { Tool, defaults } from "./tools";
 import { Check, Destination, Field } from "./fields";
 import {
@@ -66,6 +69,8 @@ export default function Workbench() {
     path: "",
     format: "csv",
   });
+  const [clearing, setClearing] = useState(false);
+  const [changeFolder, setChangeFolder] = useState(false);
   const [resumeJob, setResumeJob] = useState<any>(null);
   const [resumeDest, setResumeDest] = useState<any>(null);
   const savedSignature = useRef("");
@@ -269,6 +274,14 @@ export default function Workbench() {
       return false;
     }
   };
+  /** Newest saved result of the steps that feed `tool`, offered as its input. */
+  const suggestionFor = (tool: string) => {
+    const feeds = Object.keys(NEXT_STEP).filter((t) =>
+      tool === "llm" ? true : NEXT_STEP[t] === tool,
+    );
+    const job = jobs.find((j) => j.saved && feeds.includes(j.tool));
+    return job && { file: job.output, from: stepOf(job.tool).title };
+  };
   const activeCount = jobs.filter((j) =>
     ACTIVE_STATES.includes(j.state),
   ).length;
@@ -387,6 +400,7 @@ export default function Workbench() {
             setFolder={setFolder}
             upload={upload}
             createExample={() => setExample(true)}
+            deleted={(f) => closeTab(f)}
           />
         </aside>
         <div
@@ -492,6 +506,7 @@ export default function Workbench() {
                   refresh={refresh}
                   report={report}
                   openConnections={() => setConnections(true)}
+                  suggestion={suggestionFor(s.id)}
                   submitted={(job) => {
                     setError("");
                     setMessage(
@@ -546,29 +561,43 @@ export default function Workbench() {
             aria-label="Job status"
             style={{ maxHeight: jobsOpen ? jobsHeight : JOBS_COLLAPSED }}
           >
-            <button
-              className="jobs-heading"
-              aria-expanded={jobsOpen}
-              onClick={() => setJobsOpen(!jobsOpen)}
-            >
-              <strong>Jobs</strong>
-              {activeCount > 0 && (
-                <span className="count-badge running">
-                  <LoaderCircle className="spin" size={12} />
-                  {activeCount} running
+            <div className="jobs-heading">
+              <button
+                className="jobs-toggle"
+                aria-expanded={jobsOpen}
+                onClick={() => setJobsOpen(!jobsOpen)}
+              >
+                <strong>Jobs</strong>
+                {activeCount > 0 && (
+                  <span className="count-badge running">
+                    <LoaderCircle className="spin" size={12} />
+                    {activeCount} running
+                  </span>
+                )}
+                {failedCount > 0 && (
+                  <span className="count-badge failed">
+                    {failedCount} failed
+                  </span>
+                )}
+                <span className="hint">
+                  {jobs.length
+                    ? `${jobs.length} total · one runs at a time`
+                    : "Nothing running yet"}
                 </span>
-              )}
-              {failedCount > 0 && (
-                <span className="count-badge failed">{failedCount} failed</span>
-              )}
-              <span className="hint">
-                {jobs.length
-                  ? `${jobs.length} total · one runs at a time`
-                  : "Nothing running yet"}
-              </span>
-              <span className="spacer" />
-              {jobsOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-            </button>
+                <span className="spacer" />
+                {jobsOpen ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+              </button>
+              {jobsOpen &&
+                jobs.some((j) => !ACTIVE_STATES.includes(j.state)) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setClearing(true)}
+                  >
+                    <Trash2 size={14} /> Clear history
+                  </Button>
+                )}
+            </div>
             {jobsOpen && (
               <div className="jobs-list">
                 {!jobs.length && (
@@ -589,6 +618,11 @@ export default function Workbench() {
                       }
                     }}
                     act={(action) => jobAction(j, action)}
+                    next={
+                      NEXT_STEP[j.tool]
+                        ? () => useFile(NEXT_STEP[j.tool], j.output)
+                        : undefined
+                    }
                     openResult={() => open(j.output)}
                     resumeElsewhere={() => {
                       setResumeJob(j);
@@ -735,6 +769,61 @@ export default function Workbench() {
           <pre className="record-inspector">{pretty(jobDetail)}</pre>
         </Modal>
       )}
+      {clearing && (
+        <Modal
+          title="Clear job history?"
+          description="Removes finished jobs from this list, with the copies kept for resuming them."
+          close={() => setClearing(false)}
+        >
+          <p>
+            Your result files are <strong>not</strong> deleted; they stay in
+            Files. Running jobs are kept.
+          </p>
+          <div className="row wrap">
+            <Button
+              onClick={async () => {
+                try {
+                  const result = await api("/jobs/clear", {});
+                  setJobs(result.jobs);
+                  setClearing(false);
+                  setMessage(
+                    `Cleared ${result.removed} finished job${result.removed === 1 ? "" : "s"}.`,
+                  );
+                } catch (e) {
+                  report(e);
+                }
+              }}
+            >
+              <Trash2 size={15} /> Clear history
+            </Button>
+            <Button variant="outline" onClick={() => setClearing(false)}>
+              Cancel
+            </Button>
+          </div>
+        </Modal>
+      )}
+      {changeFolder && (
+        <FolderPicker
+          title="Choose your research folder"
+          description="Your main folder: new results are saved here, and it opens first in Files."
+          confirm="Use this folder"
+          start={boot.locations.research}
+          close={() => setChangeFolder(false)}
+          onPick={async (path) => {
+            const result = await api("/research-folder", { path });
+            setRoots(result.roots);
+            setFolder({ root: result.roots[0].id, path: "" });
+            setBoot((prev: any) => ({
+              ...prev,
+              roots: result.roots,
+              locations: result.locations,
+            }));
+            setChangeFolder(false);
+            setMessage("Your research folder is now " + path);
+            await refresh();
+          }}
+        />
+      )}
       {resumeJob && (
         <Modal
           title="Resume to a new file"
@@ -780,9 +869,10 @@ export default function Workbench() {
           <p>
             Each step works on its own: pick any CSV or JSON file as its input,
             and it saves a <em>new</em> file, so your originals never change.
-            Jobs run one at a time and keep going while you switch steps. If a
-            job stops, its finished rows are kept, and <strong>Resume</strong>{" "}
-            continues from there.
+            Every step has a <strong>Show the Python code</strong> button with a
+            script you can run yourself. Jobs run one at a time and keep going
+            while you switch steps. If a job stops, its finished rows are kept,
+            and <strong>Resume</strong> continues from there.
           </p>
           <p>
             NewsAPI and OpenAI receive the text you send them. FinBERT
@@ -809,9 +899,18 @@ export default function Workbench() {
             </Button>
           </div>
           <dl className="locations">
-            <dt>Research files</dt>
+            <dt>Research folder</dt>
             <dd>
-              <code>{boot.locations.research}</code>
+              <code>{boot.locations.research}</code>{" "}
+              <button
+                className="link-button"
+                onClick={() => {
+                  setHelp(false);
+                  setChangeFolder(true);
+                }}
+              >
+                Change…
+              </button>
             </dd>
             <dt>Settings and jobs</dt>
             <dd>
@@ -881,12 +980,15 @@ function JobRow({
   act,
   openResult,
   resumeElsewhere,
+  next,
 }: {
   job: any;
   inspect: () => void;
   act: (action: string) => void;
   openResult: () => void;
   resumeElsewhere: () => void;
+  /** Send the result to the following step. */
+  next?: () => void;
 }) {
   const active = ACTIVE_STATES.includes(j.state);
   const resumable =
@@ -972,6 +1074,12 @@ function JobRow({
         {j.saved && (
           <Button variant="outline" size="sm" onClick={openResult}>
             <FileSpreadsheet size={14} /> Open result
+          </Button>
+        )}
+        {j.saved && j.state === "completed" && next && (
+          <Button size="sm" onClick={next}>
+            {j.tool === "news" ? "Classify these" : "Extract from these"}
+            <ArrowRight size={14} />
           </Button>
         )}
       </div>

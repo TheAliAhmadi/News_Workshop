@@ -28,6 +28,8 @@ def safe_error(exc):
     status = getattr(exc, 'status_code', None)
     if isinstance(exc, (ValueError, KeyError)):
         return str(exc)[:500]
+    if isinstance(exc, FileNotFoundError):
+        return 'That file or folder no longer exists. Refresh the file list and choose another.'
     if status in PROVIDER_STATUS:
         return f'{PROVIDER_STATUS[status]} (HTTP {status})'
     if status and status >= 500:
@@ -278,18 +280,4 @@ def clean_process(ctx, df, c):
     if c.get('duplicate_keys'):
         result = result.drop_duplicates(c['duplicate_keys'], keep='first')
     ctx.checkpoint(records(result), completed=len(df), removed=len(df) - len(result))
-    return result
-
-
-def aggregate_process(ctx, df, c):
-    from pipeline.step6_aggregate import aggregate_firm_month
-    mapping = c['mapping']
-    fields = {'firm': 'focal_firm', 'date': 'published_at', 'relevance': 'esg_relevant', 'dimension': 'esg_dimension', 'relationship': 'event_relationship', 'theme': 'theme_primary'}
-    work = pd.DataFrame({dest: df[mapping[source]] for source, dest in fields.items()})
-    work['article_id'] = [f'row-{i}' for i in range(len(work))]
-    work['llm_status'] = df[mapping['status']] if mapping.get('status') else 'ok'
-    work['esg_relevant'] = work.esg_relevant.map(lambda v: str(v).lower() in {'true', '1', 'yes'})
-    result = aggregate_firm_month(work)
-    ctx.update(phase='Aggregating publication-month mentions', total=len(df), completed=len(df), **result.attrs)
-    ctx.checkpoint(records(result), completed=len(df))
     return result

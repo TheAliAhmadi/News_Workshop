@@ -8,10 +8,12 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 python=${PYTHON:-.venv/bin/python}
 scratch=$(mktemp -d)
-mkdir -p "$scratch/state" "$scratch/research"
+mkdir -p "$scratch/state" "$scratch/research" "$scratch/home"
 echo '{"first_run_complete": true}' > "$scratch/state/settings.json"
 port=${E2E_PORT:-8790}
 
+# HOME is temporary too, so the folder picker never touches real folders.
+HOME="$scratch/home" USERPROFILE="$scratch/home" \
 WORKBENCH_STATE_DIR="$scratch/state" WORKBENCH_WORKSPACE_DIR="$scratch/research" \
 WORKBENCH_SECURE_STORAGE=0 NEWS_API_KEY= OPENAI_API_KEY= WORKBENCH_ENV_FILE="$scratch/none.env" \
   "$python" -m workbench --no-browser --port "$port" > "$scratch/server.log" 2>&1 &

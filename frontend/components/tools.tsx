@@ -1,35 +1,41 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import {
-  Play,
-  Search,
+  ArrowRight,
   CheckCircle2,
-  FlaskConical,
+  Code2,
   Eye,
-  Save,
+  FlaskConical,
   KeyRound,
+  Play,
+  Save,
+  Search,
   Sparkles,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import {
-  Field,
-  Section,
-  FileSelect,
+  Check,
   ColumnPicker,
   Destination,
-  Check,
+  Field,
+  FileSelect,
   ImportText,
+  More,
+  Section,
 } from "./fields";
+import { CodeViewer, TeachingCode } from "./code-viewer";
 import { ExtractionDesigner } from "./extraction-designer";
+import { Flowchart, flowFor } from "./flow";
 import { SchemaBuilder, EnumBuilder } from "./schema-builder";
 import { Modal } from "./explorer";
 import { ModelPreparation } from "./model-preparation";
 import { KEY_NAMES, STEPS, stepOf } from "./steps";
 import { api, Entry, Ref, Root, pretty, query } from "@/lib/api";
+
 export type ToolProps = {
   visible?: boolean;
   tool: string;
-  /** Position in the workflow, shown as "Step n of 6". */
+  /** Position in the workflow, shown as "Step n of 3". */
   number: number;
   config: any;
   set: (c: any) => void;
@@ -41,7 +47,10 @@ export type ToolProps = {
   report: (e: unknown) => void;
   submitted: (job: any) => void;
   openConnections: () => void;
+  /** The latest result of the previous step, offered as this step's input. */
+  suggestion?: { file: Ref; from: string };
 };
+
 export const defaults: Record<string, any> = {
   news: {
     company: "",
@@ -77,25 +86,44 @@ export const defaults: Record<string, any> = {
     filter: { column: "", mode: "include", values: [] },
     destination: { filename: "extracted.csv", format: "csv", path: "" },
   },
-  clean: {
-    columns: [],
-    duplicate_keys: [],
-    normalize: true,
-    drop_empty: false,
-    lowercase: false,
-    destination: { filename: "cleaned.csv", format: "csv", path: "" },
-  },
-  review: {
-    fields: [],
-    count: 5,
-    seed: 42,
-    destination: { filename: "human_labels.csv", format: "csv", path: "" },
-  },
-  aggregate: {
-    mapping: {},
-    destination: { filename: "firm_month.csv", format: "csv", path: "" },
-  },
 };
+
+/** Well-known classifiers students can pick with one click. */
+const SUGGESTED_MODELS = [
+  {
+    id: "yiyanghkust/finbert-esg",
+    name: "FinBERT-ESG",
+    labels: "Environmental, Social, Governance, or None",
+  },
+  {
+    id: "yiyanghkust/finbert-tone",
+    name: "FinBERT tone",
+    labels: "Positive, Negative, or Neutral",
+  },
+  {
+    id: "ProsusAI/finbert",
+    name: "FinBERT sentiment",
+    labels: "positive, negative, or neutral",
+  },
+];
+
+const LANGUAGES = [
+  "en",
+  "fr",
+  "de",
+  "es",
+  "it",
+  "pt",
+  "ar",
+  "zh",
+  "ru",
+  "nl",
+  "no",
+  "sv",
+  "he",
+  "ud",
+];
+
 export function Tool({
   visible = true,
   tool,
@@ -110,6 +138,7 @@ export function Tool({
   report,
   submitted,
   openConnections,
+  suggestion,
 }: ToolProps) {
   const [columns, setColumns] = useState<string[]>([]);
   const [rowCount, setRowCount] = useState(0);
@@ -123,15 +152,11 @@ export function Tool({
   const [validMessage, setValidMessage] = useState("");
   const [schemaMode, setSchemaMode] = useState("visual");
   const [enumMode, setEnumMode] = useState("visual");
-  const [sample, setSample] = useState<any>(null);
-  const [labels, setLabels] = useState<Record<number, Record<string, string>>>(
-    {},
-  );
-  const [metrics, setMetrics] = useState<any>(null);
   const [presetName, setPresetName] = useState("extraction_preset.json");
   const [savePreset, setSavePreset] = useState(false);
   const [showDesigner, setShowDesigner] = useState(false);
   const [designBusy, setDesignBusy] = useState(false);
+  const [code, setCode] = useState<TeachingCode | null>(null);
   const latestConfig = useRef(c);
   latestConfig.current = c;
   const patch = (value: any) => set({ ...latestConfig.current, ...value });
@@ -141,6 +166,7 @@ export function Tool({
     ...c.destination,
     root: c.destination?.root || roots[0]?.id,
   };
+  const destinationRoot = roots.find((r) => r.id === destination.root);
   const perform = async (fn: () => Promise<void>) => {
     setBusy(true);
     setValidMessage("");
@@ -177,7 +203,7 @@ export function Tool({
     try {
       const d = await api("/preview?" + query(input) + "&limit=1");
       if (d.kind !== "dataset")
-        throw new Error("Choose a CSV or JSON array of records.");
+        throw new Error("Choose a CSV or JSON table of records.");
       const preferred = [
         "headline",
         "title",
@@ -189,28 +215,33 @@ export function Tool({
         input,
         columns: preferred.length ? preferred : d.columns.slice(0, 1),
         context_columns: [],
-        fields: [],
-        mapping: {},
         filter: { column: "", mode: "include", values: [] },
       });
-      setSample(null);
     } catch (e) {
       report(e);
     }
   };
   const processingConfig = () => {
     const { input, destination, schemaText, enumsText, ...config } = c;
-    return tool === "llm"
-      ? {
-          ...config,
-          filter: config.filter && {
-            ...config.filter,
-            values: config.filter.values.filter(Boolean),
-          },
-          schema: JSON.parse(schemaText),
-          enums: JSON.parse(enumsText),
-        }
-      : config;
+    if (tool !== "llm") return config;
+    let schema, enums;
+    try {
+      schema = JSON.parse(schemaText);
+      enums = JSON.parse(enumsText);
+    } catch {
+      throw new Error(
+        "The fields or allowed-values JSON has a typing mistake. Fix it in the editor, or switch back to the field builder.",
+      );
+    }
+    return {
+      ...config,
+      filter: config.filter && {
+        ...config.filter,
+        values: config.filter.values.filter(Boolean),
+      },
+      schema,
+      enums,
+    };
   };
   const start = (test = false) =>
     perform(async () => {
@@ -219,7 +250,7 @@ export function Tool({
         ? {
             ...destination,
             filename: "test_" + destination.filename,
-            overwrite: false,
+            overwrite: true,
           }
         : destination;
       const job = await api("/jobs", {
@@ -240,6 +271,17 @@ export function Tool({
         }),
       ),
     );
+  const showCode = () =>
+    perform(async () =>
+      setCode(
+        await api("/code", {
+          tool,
+          config: processingConfig(),
+          input: c.input,
+          destination,
+        }),
+      ),
+    );
   const loadTemplate = (name: string) => {
     const t = bootstrap.templates[name];
     patch({ ...t, schemaText: pretty(t.schema), enumsText: pretty(t.enums) });
@@ -248,7 +290,7 @@ export function Tool({
     try {
       const p = JSON.parse(text);
       if (!p.schema || typeof p.instructions !== "string")
-        throw new Error("Preset needs instructions, enums and schema.");
+        throw new Error("A preset needs instructions, enums and a schema.");
       patch({
         instructions: p.instructions,
         schemaText: pretty(p.schema),
@@ -297,20 +339,267 @@ export function Tool({
   const step = stepOf(tool);
   const missingKey = step.needs && !bootstrap.connections[step.needs];
   const combinedQuery = '"' + c.company + '" AND (' + c.query + ")";
+  const id = (part: string) => `${tool}-${part}`;
+  const suggestionDiffers =
+    suggestion &&
+    (suggestion.file.root !== c.input?.root ||
+      suggestion.file.path !== c.input?.path);
+
+  const inputSection = (
+    <Section
+      id={id("input")}
+      title="Choose your data"
+      detail="Any CSV or JSON table works, for example the file a previous step saved."
+    >
+      {suggestionDiffers && (
+        <div className="suggestion">
+          <ArrowRight size={16} />
+          <span>
+            Continue with <strong>{suggestion!.file.path}</strong>, the newest
+            result from {suggestion!.from}.
+          </span>
+          <Button size="sm" onClick={() => chooseInput(suggestion!.file)}>
+            Use this file
+          </Button>
+        </div>
+      )}
+      <FileSelect
+        value={c.input}
+        set={chooseInput}
+        files={files}
+        upload={upload}
+      />
+      {c.input && (
+        <div className="input-meta">
+          <span className="tiny-dot" /> {c.input.path}
+          <span>
+            {rowCount.toLocaleString()} rows · {columns.length} columns
+          </span>
+        </div>
+      )}
+    </Section>
+  );
+
+  const textSection = (
+    <Section
+      id={id("text")}
+      title="Which text to use"
+      detail="The chosen columns are joined in this order for each row, then cut to the word limit. Use the arrows to reorder."
+    >
+      <ColumnPicker
+        columns={columns}
+        value={c.columns}
+        set={(columns) => patch({ columns })}
+      />
+      <div className="grid3">
+        <Field
+          label="Word limit"
+          hint="Longer text takes more time (and costs more with OpenAI)."
+        >
+          <input
+            type="number"
+            min={1}
+            max={100000}
+            value={c.word_limit}
+            onChange={(e) => patch({ word_limit: Number(e.target.value) })}
+          />
+        </Field>
+        {tool === "llm" && (
+          <Field label="Rows to process" hint="0 means every row.">
+            <input
+              type="number"
+              min={0}
+              value={c.row_limit}
+              onChange={(e) => patch({ row_limit: Number(e.target.value) })}
+            />
+          </Field>
+        )}
+      </div>
+      {tool === "llm" && (
+        <More label="More text options: extra context and row filter">
+          <Field
+            label="Context columns (optional)"
+            hint="Sent alongside the text, e.g. the company name or date."
+          >
+            <div className="checkbox-grid">
+              {columns.map((col) => (
+                <Check
+                  key={col}
+                  label={col}
+                  value={c.context_columns.includes(col)}
+                  set={(v) =>
+                    patch({
+                      context_columns: v
+                        ? [...c.context_columns, col]
+                        : c.context_columns.filter((x: string) => x !== col),
+                    })
+                  }
+                />
+              ))}
+            </div>
+          </Field>
+          <div className="grid3">
+            <Field label="Only rows where column">
+              <select
+                value={c.filter.column}
+                onChange={(e) =>
+                  patch({ filter: { ...c.filter, column: e.target.value } })
+                }
+              >
+                <option value="">No filter: all rows</option>
+                {columns.map((col) => (
+                  <option key={col}>{col}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Mode">
+              <select
+                value={c.filter.mode}
+                onChange={(e) =>
+                  patch({ filter: { ...c.filter, mode: e.target.value } })
+                }
+              >
+                <option value="include">is one of</option>
+                <option value="exclude">is not one of</option>
+              </select>
+            </Field>
+            <Field label="Values (comma separated)">
+              <input
+                value={c.filter.values.join(", ")}
+                onChange={(e) =>
+                  patch({
+                    filter: {
+                      ...c.filter,
+                      values: e.target.value.split(",").map((v) => v.trim()),
+                    },
+                  })
+                }
+              />
+            </Field>
+          </div>
+        </More>
+      )}
+      <Button
+        variant="outline"
+        disabled={!c.input || busy}
+        onClick={inputPreview}
+      >
+        <Eye size={14} /> Preview exact input
+        {tool === "llm" ? " & prompt" : ""}
+      </Button>
+    </Section>
+  );
+
+  const outputSection = (
+    <Section
+      id={id("output")}
+      title="Save the results"
+      detail={
+        tool === "news"
+          ? "Articles are saved as a new table, one row per article."
+          : "Your original columns are kept, with the new results added next to them."
+      }
+    >
+      <div className="grid2">
+        <Field label="Filename">
+          <input
+            value={destination.filename || ""}
+            onChange={(e) =>
+              patch({
+                destination: { ...destination, filename: e.target.value },
+              })
+            }
+            placeholder="my_results.csv"
+          />
+        </Field>
+        <div className="save-location">
+          Saved in <strong>{destinationRoot?.name}</strong>
+          {destination.path ? " / " + destination.path : ""}
+        </div>
+      </div>
+      <More label="More save options: folder, format, column names">
+        <Destination
+          value={destination}
+          set={(destination) => patch({ destination })}
+          roots={roots}
+          folders={folders}
+          hideFilename
+        />
+        {tool !== "news" && (
+          <Field
+            label="Name new columns starting with"
+            hint={
+              tool === "llm"
+                ? "Each extracted field becomes a column such as llm_field_<name>."
+                : "For example hf_label and hf_score. Must not match existing column names."
+            }
+          >
+            <input
+              value={c.prefix}
+              onChange={(e) => patch({ prefix: e.target.value })}
+            />
+          </Field>
+        )}
+      </More>
+      {validMessage && (
+        <div role="status" className="success-message">
+          <CheckCircle2 size={16} />
+          {validMessage}
+        </div>
+      )}
+      <div className="run-row">
+        <Button
+          size="lg"
+          disabled={busy || !!missingKey || (tool !== "news" && !c.input)}
+          onClick={() => start()}
+        >
+          <Play size={15} />
+          {busy
+            ? "Starting…"
+            : tool === "news"
+              ? "Collect articles"
+              : tool === "hf"
+                ? "Classify all rows"
+                : "Extract from all rows"}
+        </Button>
+        {tool === "llm" && (
+          <Button
+            variant="outline"
+            size="lg"
+            disabled={busy || !!missingKey || !c.input}
+            onClick={() => start(true)}
+          >
+            <FlaskConical size={15} /> Test one row first
+          </Button>
+        )}
+        <span className="hint">
+          {missingKey
+            ? `Add your ${KEY_NAMES[step.needs!]} key first.`
+            : tool !== "news" && !c.input
+              ? "Choose your data first."
+              : "Progress appears under Jobs at the bottom."}
+        </span>
+      </div>
+    </Section>
+  );
+
   return (
     <div className="tool-page">
       <header className="tool-heading">
-        <div className="eyebrow">
-          Step {number} of {STEPS.length}
+        <div className="tool-heading-row">
+          <div>
+            <div className="eyebrow">
+              Step {number} of {STEPS.length}
+            </div>
+            <h1>{step.heading}</h1>
+          </div>
+          <Button variant="outline" onClick={showCode} disabled={busy}>
+            <Code2 size={16} /> Show the Python code
+          </Button>
         </div>
-        <h1>{step.heading}</h1>
         <p>{step.intro}</p>
-        {tool !== "news" && (
-          <p className="tool-independence">
-            Works with any CSV or JSON file; earlier steps are optional.
-          </p>
-        )}
       </header>
+      <Flowchart tool={tool} nodes={flowFor(tool, c, bootstrap)} />
       {missingKey && (
         <div className="callout warning" role="note">
           <KeyRound size={18} />
@@ -323,42 +612,13 @@ export function Tool({
           </Button>
         </div>
       )}
-      {tool === "hf" && (
-        <Section
-          title="Prepare the classifier"
-          detail="FinBERT-ESG (about 440 MB) downloads once, then runs on this computer. Do this before class so the first run starts right away."
-        >
-          <ModelPreparation report={report} />
-        </Section>
-      )}
-      {tool !== "news" && (
-        <Section
-          number="01"
-          title="Input dataset"
-          detail="Choose any CSV or JSON file. No earlier tool run is required."
-        >
-          <FileSelect
-            value={c.input}
-            set={chooseInput}
-            files={files}
-            upload={upload}
-          />
-          {c.input && (
-            <div className="input-meta">
-              <FileBadge /> {c.input.path}
-              <span>
-                {rowCount.toLocaleString()} rows · {columns.length} columns
-              </span>
-            </div>
-          )}
-        </Section>
-      )}
+
       {tool === "news" && (
         <>
           <Section
-            number="01"
-            title="Company & search"
-            detail="Search NewsAPI’s Everything endpoint with your own topic expression."
+            id={id("search")}
+            title="What to search for"
+            detail="Articles must mention the company and match the topic."
           >
             <div className="grid2">
               <Field label="Company name" hint="One company per search.">
@@ -370,7 +630,7 @@ export function Tool({
               </Field>
               <Field
                 label="Query"
-                hint="Use AND, OR, NOT, parentheses, or quoted phrases."
+                hint="Topic words. Use OR for alternatives, quotes for exact phrases."
               >
                 <input
                   placeholder="e.g. layoffs OR hiring"
@@ -396,50 +656,77 @@ export function Tool({
                   : "Enter a company and query to preview your search."}
               </code>
             </div>
-          </Section>
-          <Section
-            number="02"
-            title="Publishers & coverage"
-            detail="Selected publishers become domain filters. With none selected, search all available coverage."
-          >
-            <div className="row">
-              <div className="search-input">
-                <Search size={15} />
+            <div className="grid3">
+              <Field label="From">
                 <input
-                  aria-label="Search publishers"
-                  placeholder="Search publishers…"
-                  value={sourceQuery}
-                  onChange={(e) => setSourceQuery(e.target.value)}
+                  type="date"
+                  value={c.from || ""}
+                  onChange={(e) => patch({ from: e.target.value })}
                 />
-              </div>
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() =>
-                  perform(async () => {
-                    const extra = await api("/sources");
-                    setSources([
-                      ...bootstrap.sources,
-                      ...extra.filter(
-                        (s: any) =>
-                          !bootstrap.sources.some(
-                            (b: any) => b.domain === s.domain,
-                          ),
-                      ),
-                    ]);
-                  })
-                }
+              </Field>
+              <Field label="To">
+                <input
+                  type="date"
+                  value={c.to || ""}
+                  onChange={(e) => patch({ to: e.target.value })}
+                />
+              </Field>
+              <Field
+                label="Maximum results"
+                hint="The free NewsAPI plan returns up to 100."
               >
-                Search NewsAPI directory
-              </Button>
+                <input
+                  type="number"
+                  min={1}
+                  max={10000}
+                  value={c.max_results}
+                  onChange={(e) =>
+                    patch({ max_results: Number(e.target.value) })
+                  }
+                />
+              </Field>
             </div>
-            <details className="source-dropdown" open>
-              <summary>
-                {c.domains.length
-                  ? c.domains.length + " publishers selected"
-                  : "Choose publishers"}{" "}
-                <span>Suggested business sources</span>
-              </summary>
+            <p className="hint">
+              The free plan only searches about the last month, so leave the
+              dates empty or keep them recent.
+            </p>
+            <More
+              label={
+                "More search options: publishers, language, sorting" +
+                (c.domains.length ? ` (${c.domains.length} publishers)` : "")
+              }
+            >
+              <div className="row">
+                <div className="search-input">
+                  <Search size={15} />
+                  <input
+                    aria-label="Search publishers"
+                    placeholder="Search publishers…"
+                    value={sourceQuery}
+                    onChange={(e) => setSourceQuery(e.target.value)}
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() =>
+                    perform(async () => {
+                      const extra = await api("/sources");
+                      setSources([
+                        ...bootstrap.sources,
+                        ...extra.filter(
+                          (s: any) =>
+                            !bootstrap.sources.some(
+                              (b: any) => b.domain === s.domain,
+                            ),
+                        ),
+                      ]);
+                    })
+                  }
+                >
+                  Search NewsAPI directory
+                </Button>
+              </div>
               <div
                 className="source-options"
                 role="group"
@@ -456,7 +743,7 @@ export function Tool({
                     ) && (
                       <div className="source-group-label">
                         {suggested
-                          ? "Suggested business sources"
+                          ? "Suggested business publishers"
                           : "NewsAPI source directory"}
                       </div>
                     )}
@@ -492,123 +779,150 @@ export function Tool({
                   </div>
                 ))}
               </div>
-            </details>
-            <p className="hint">
-              Coverage varies by publisher and plan. The free plan only searches
-              about the last month of articles, so leave the dates empty or keep
-              them recent.
-            </p>
-            <div className="grid3">
-              <Field label="From">
-                <input
-                  type="date"
-                  value={c.from || ""}
-                  onChange={(e) => patch({ from: e.target.value })}
-                />
-              </Field>
-              <Field label="To">
-                <input
-                  type="date"
-                  value={c.to || ""}
-                  onChange={(e) => patch({ to: e.target.value })}
-                />
-              </Field>
-              <Field label="Language">
-                <select
-                  value={c.language}
-                  onChange={(e) => patch({ language: e.target.value })}
-                >
-                  <option value="">All languages</option>
-                  {[
-                    "en",
-                    "fr",
-                    "de",
-                    "es",
-                    "it",
-                    "pt",
-                    "ar",
-                    "zh",
-                    "ru",
-                    "nl",
-                    "no",
-                    "sv",
-                    "he",
-                    "ud",
-                  ].map((l) => (
-                    <option key={l}>{l}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Sort by">
-                <select
-                  value={c.sort}
-                  onChange={(e) => patch({ sort: e.target.value })}
-                >
-                  <option value="publishedAt">Newest first</option>
-                  <option value="relevancy">Relevance</option>
-                  <option value="popularity">Popularity</option>
-                </select>
-              </Field>
-              <Field
-                label="Maximum results"
-                hint="The free NewsAPI plan returns up to 100."
-              >
-                <input
-                  type="number"
-                  min={1}
-                  max={10000}
-                  value={c.max_results}
-                  onChange={(e) =>
-                    patch({ max_results: Number(e.target.value) })
-                  }
-                />
-              </Field>
-              <Field label="Article fields to search">
-                <div className="row wrap">
-                  {["title", "description", "content"].map((f) => (
-                    <Check
-                      key={f}
-                      label={f}
-                      value={c.search_in.includes(f)}
-                      set={(v) =>
-                        patch({
-                          search_in: v
-                            ? [...c.search_in, f]
-                            : c.search_in.filter((x: string) => x !== f),
-                        })
-                      }
-                    />
-                  ))}
-                </div>
-              </Field>
-            </div>
+              <p className="hint">
+                With no publishers selected, every source NewsAPI covers is
+                searched.
+              </p>
+              <div className="grid3">
+                <Field label="Language">
+                  <select
+                    value={c.language}
+                    onChange={(e) => patch({ language: e.target.value })}
+                  >
+                    <option value="">All languages</option>
+                    {LANGUAGES.map((l) => (
+                      <option key={l}>{l}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Sort by">
+                  <select
+                    value={c.sort}
+                    onChange={(e) => patch({ sort: e.target.value })}
+                  >
+                    <option value="publishedAt">Newest first</option>
+                    <option value="relevancy">Relevance</option>
+                    <option value="popularity">Popularity</option>
+                  </select>
+                </Field>
+                <Field label="Search in">
+                  <div className="row wrap">
+                    {["title", "description", "content"].map((f) => (
+                      <Check
+                        key={f}
+                        label={f}
+                        value={c.search_in.includes(f)}
+                        set={(v) =>
+                          patch({
+                            search_in: v
+                              ? [...c.search_in, f]
+                              : c.search_in.filter((x: string) => x !== f),
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
+                </Field>
+              </div>
+            </More>
           </Section>
+          {outputSection}
         </>
       )}
-      {["hf", "llm"].includes(tool) && (
-        <Section
-          number="02"
-          title="Text to process"
-          detail="Columns are combined in the displayed order, then capped at your word budget."
-        >
-          <ColumnPicker
-            columns={columns}
-            value={c.columns}
-            set={(columns) => patch({ columns })}
-          />
-          <div className="grid3">
-            <Field label="Word budget">
+
+      {tool === "hf" && (
+        <>
+          {inputSection}
+          {textSection}
+          <Section
+            id={id("model")}
+            title="Choose a model"
+            detail="A Hugging Face text classifier reads each row and picks one of its labels. It runs on this computer."
+          >
+            <div className="model-choices" role="radiogroup">
+              {SUGGESTED_MODELS.map((m) => (
+                <button
+                  key={m.id}
+                  role="radio"
+                  aria-checked={c.model === m.id}
+                  className={
+                    "model-choice" + (c.model === m.id ? " selected" : "")
+                  }
+                  onClick={() => patch({ model: m.id, revision: "main" })}
+                >
+                  <strong>{m.name}</strong>
+                  <span>{m.labels}</span>
+                  <code>{m.id}</code>
+                </button>
+              ))}
+            </div>
+            <Field
+              label="Hugging Face model ID"
+              hint="Or paste the ID of any text-classification model from huggingface.co."
+            >
               <input
-                type="number"
-                min={1}
-                max={100000}
-                value={c.word_limit}
-                onChange={(e) => patch({ word_limit: Number(e.target.value) })}
+                value={c.model}
+                onChange={(e) => patch({ model: e.target.value })}
               />
             </Field>
-            {tool === "hf" ? (
-              <>
-                <Field label="Batch size">
+            {c.model === bootstrap.default_classifier && (
+              <div className="prepare-box">
+                <p>
+                  FinBERT-ESG (about 440 MB) downloads the first time. Download
+                  it before class so the first run starts right away.
+                </p>
+                <ModelPreparation report={report} />
+              </div>
+            )}
+            <More label="More model options: search, version, speed">
+              <div className="row">
+                <input
+                  aria-label="Search Hugging Face models"
+                  placeholder="Search text-classification models…"
+                  value={modelQuery}
+                  onChange={(e) => setModelQuery(e.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() =>
+                    perform(async () =>
+                      setModels(
+                        await api(
+                          "/models/hf?q=" + encodeURIComponent(modelQuery),
+                        ),
+                      ),
+                    )
+                  }
+                >
+                  <Search size={14} /> Search Hub
+                </Button>
+              </div>
+              {models.length > 0 && (
+                <select
+                  aria-label="Hugging Face search results"
+                  value=""
+                  onChange={(e) => patch({ model: e.target.value })}
+                >
+                  <option value="">Select a search result…</option>
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.id}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <div className="grid3">
+                <Field
+                  label="Revision"
+                  hint="Branch, tag, or commit. The exact one used is recorded."
+                >
+                  <input
+                    value={c.revision}
+                    onChange={(e) => patch({ revision: e.target.value })}
+                  />
+                </Field>
+                <Field label="Batch size" hint="Rows classified together.">
                   <input
                     type="number"
                     min={1}
@@ -619,7 +933,7 @@ export function Tool({
                     }
                   />
                 </Field>
-                <Field label="Execution device">
+                <Field label="Run on">
                   <div className="row">
                     <select
                       value={c.device}
@@ -640,182 +954,36 @@ export function Tool({
                     </Button>
                   </div>
                 </Field>
-              </>
-            ) : (
-              <Field label="Row limit" hint="0 processes all selected rows.">
-                <input
-                  type="number"
-                  min={0}
-                  value={c.row_limit}
-                  onChange={(e) => patch({ row_limit: Number(e.target.value) })}
-                />
-              </Field>
-            )}
-          </div>
-          {tool === "llm" && (
-            <>
-              <Field label="Context columns (optional)">
-                <div className="checkbox-grid">
-                  {columns.map((col) => (
-                    <Check
-                      key={col}
-                      label={col}
-                      value={c.context_columns.includes(col)}
-                      set={(v) =>
-                        patch({
-                          context_columns: v
-                            ? [...c.context_columns, col]
-                            : c.context_columns.filter(
-                                (x: string) => x !== col,
-                              ),
-                        })
-                      }
-                    />
-                  ))}
-                </div>
-              </Field>
-              <details className="advanced">
-                <summary>Optional row filter</summary>
-                <div className="grid3">
-                  <Field label="Filter column">
-                    <select
-                      value={c.filter.column}
-                      onChange={(e) =>
-                        patch({
-                          filter: { ...c.filter, column: e.target.value },
-                        })
-                      }
-                    >
-                      <option value="">No filter — all rows</option>
-                      {columns.map((col) => (
-                        <option key={col}>{col}</option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field label="Mode">
-                    <select
-                      value={c.filter.mode}
-                      onChange={(e) =>
-                        patch({ filter: { ...c.filter, mode: e.target.value } })
-                      }
-                    >
-                      <option value="include">Include values</option>
-                      <option value="exclude">Exclude values</option>
-                    </select>
-                  </Field>
-                  <Field label="Values (comma separated)">
-                    <input
-                      value={c.filter.values.join(", ")}
-                      onChange={(e) =>
-                        patch({
-                          filter: {
-                            ...c.filter,
-                            values: e.target.value
-                              .split(",")
-                              .map((v) => v.trim()),
-                          },
-                        })
-                      }
-                    />
-                  </Field>
-                </div>
-              </details>
-            </>
-          )}
-          <Button
-            variant="outline"
-            disabled={!c.input || busy}
-            onClick={inputPreview}
-          >
-            <Eye size={14} /> Preview exact input
-            {tool === "llm" ? " & prompt" : ""}
-          </Button>
-        </Section>
+              </div>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() =>
+                  perform(async () => {
+                    const r = await api("/models/hf/validate", c);
+                    setValidMessage(
+                      "Compatible classifier · labels: " +
+                        Object.values(r.labels).join(", "),
+                    );
+                  })
+                }
+              >
+                <CheckCircle2 size={14} /> Check this model works
+              </Button>
+            </More>
+          </Section>
+          {outputSection}
+        </>
       )}
-      {tool === "hf" && (
-        <Section
-          number="03"
-          title="Classifier"
-          detail="Compatible Hugging Face text classifiers keep their own labels and scores."
-        >
-          <div className="row">
-            <input
-              aria-label="Search Hugging Face models"
-              placeholder="Search text-classification models…"
-              value={modelQuery}
-              onChange={(e) => setModelQuery(e.target.value)}
-            />
-            <Button
-              variant="outline"
-              onClick={() =>
-                perform(async () =>
-                  setModels(
-                    await api("/models/hf?q=" + encodeURIComponent(modelQuery)),
-                  ),
-                )
-              }
-            >
-              <Search size={14} /> Search Hub
-            </Button>
-          </div>
-          {models.length > 0 && (
-            <select
-              aria-label="Hugging Face search results"
-              value=""
-              onChange={(e) => patch({ model: e.target.value })}
-            >
-              <option value="">Select a search result…</option>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id}
-                </option>
-              ))}
-            </select>
-          )}
-          <div className="grid2">
-            <Field label="Hugging Face repository ID">
-              <input
-                value={c.model}
-                onChange={(e) => patch({ model: e.target.value })}
-              />
-            </Field>
-            <Field
-              label="Revision"
-              hint="Branch, tag, or commit. The resolved revision is recorded."
-            >
-              <input
-                value={c.revision}
-                onChange={(e) => patch({ revision: e.target.value })}
-              />
-            </Field>
-          </div>
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() =>
-              perform(async () => {
-                const r = await api("/models/hf/validate", c);
-                setValidMessage(
-                  "Compatible classifier · labels: " +
-                    Object.values(r.labels).join(", "),
-                );
-              })
-            }
-          >
-            <CheckCircle2 size={14} /> Validate compatibility
-          </Button>
-          <p className="hint">
-            The first run downloads model weights. Loading is shown separately
-            from row inference. No repository code is executed.
-          </p>
-        </Section>
-      )}
+
       {tool === "llm" && (
         <>
+          {inputSection}
+          {textSection}
           <Section
-            number="03"
-            title="Instructions & output design"
-            detail="Define your research task and the exact shape of every result."
+            id={id("design")}
+            title="What to extract"
+            detail="Instructions tell the model what to do; the fields define the exact answer it must give for every row."
           >
             <div className="row wrap">
               <Button
@@ -842,8 +1010,8 @@ export function Tool({
               </Button>
               <span className="tag">
                 {c.preset === "esg"
-                  ? "ESG evidence checks enabled"
-                  : "Custom · no ESG requirements"}
+                  ? "ESG evidence checks on"
+                  : "Custom design"}
               </span>
             </div>
             {showDesigner && (
@@ -875,55 +1043,8 @@ export function Tool({
                   onChange={(e) => patch({ instructions: e.target.value })}
                 />
               </Field>
-              <div className="row">
-                <ImportText
-                  accept=".txt,.md"
-                  onText={(instructions) => patch({ instructions })}
-                  label="Upload instructions"
-                />
-                {configFiles("instructions", "Open workspace instructions")}
-              </div>
               <div className="editor-heading">
-                <h3>Named enums</h3>
-                <div className="segmented">
-                  <button
-                    className={enumMode === "visual" ? "active" : ""}
-                    onClick={() => setEnumMode("visual")}
-                  >
-                    Lists
-                  </button>
-                  <button
-                    className={enumMode === "json" ? "active" : ""}
-                    onClick={() => setEnumMode("json")}
-                  >
-                    JSON
-                  </button>
-                </div>
-              </div>
-              {enumMode === "visual" ? (
-                <EnumBuilder
-                  text={c.enumsText}
-                  set={(enumsText) => patch({ enumsText })}
-                />
-              ) : (
-                <textarea
-                  aria-label="Enums JSON"
-                  className="code-editor"
-                  rows={7}
-                  value={c.enumsText}
-                  onChange={(e) => patch({ enumsText: e.target.value })}
-                />
-              )}
-              <div className="row">
-                <ImportText
-                  accept=".json"
-                  label="Upload enums"
-                  onText={(enumsText) => patch({ enumsText })}
-                />
-                {configFiles("enumsText", "Open workspace enums")}
-              </div>
-              <div className="editor-heading">
-                <h3>Structured output</h3>
+                <h3>Fields to extract</h3>
                 <div className="segmented">
                   <button
                     className={schemaMode === "visual" ? "active" : ""}
@@ -956,58 +1077,112 @@ export function Tool({
                   }
                 />
               )}
-              <div className="row">
-                <ImportText
-                  accept=".json"
-                  label="Upload schema"
-                  onText={(schemaText) =>
-                    patch({ schemaText, preset: "custom" })
-                  }
-                />
-                {configFiles("schemaText", "Open workspace schema")}
-              </div>
+              <More label="Allowed-value lists (enums)">
+                <div className="editor-heading flush">
+                  <p className="hint">
+                    Named lists of allowed values, shown to the model in every
+                    prompt.
+                  </p>
+                  <div className="segmented">
+                    <button
+                      className={enumMode === "visual" ? "active" : ""}
+                      onClick={() => setEnumMode("visual")}
+                    >
+                      Lists
+                    </button>
+                    <button
+                      className={enumMode === "json" ? "active" : ""}
+                      onClick={() => setEnumMode("json")}
+                    >
+                      JSON
+                    </button>
+                  </div>
+                </div>
+                {enumMode === "visual" ? (
+                  <EnumBuilder
+                    text={c.enumsText}
+                    set={(enumsText) => patch({ enumsText })}
+                  />
+                ) : (
+                  <textarea
+                    aria-label="Enums JSON"
+                    className="code-editor"
+                    rows={7}
+                    value={c.enumsText}
+                    onChange={(e) => patch({ enumsText: e.target.value })}
+                  />
+                )}
+              </More>
+              <More label="Load or save: instructions, fields, presets">
+                <div className="row wrap">
+                  <ImportText
+                    accept=".txt,.md"
+                    onText={(instructions) => patch({ instructions })}
+                    label="Upload instructions"
+                  />
+                  {configFiles("instructions", "Open workspace instructions")}
+                </div>
+                <div className="row wrap">
+                  <ImportText
+                    accept=".json"
+                    label="Upload schema"
+                    onText={(schemaText) =>
+                      patch({ schemaText, preset: "custom" })
+                    }
+                  />
+                  {configFiles("schemaText", "Open workspace schema")}
+                </div>
+                <div className="row wrap">
+                  <ImportText
+                    accept=".json"
+                    label="Upload enums"
+                    onText={(enumsText) => patch({ enumsText })}
+                  />
+                  {configFiles("enumsText", "Open workspace enums")}
+                </div>
+                <div className="row wrap">
+                  <Button variant="outline" onClick={() => setSavePreset(true)}>
+                    <Save size={14} /> Save preset
+                  </Button>
+                  <ImportText
+                    accept=".json"
+                    onText={importPreset}
+                    label="Upload preset"
+                  />
+                  {configFiles("preset", "Open saved preset")}
+                </div>
+              </More>
               <div className="row wrap">
                 <Button
                   variant="outline"
                   disabled={busy}
                   onClick={() =>
                     perform(async () => {
-                      await api("/schema/validate", {
-                        schema: JSON.parse(c.schemaText),
-                        enums: JSON.parse(c.enumsText),
-                      });
+                      const { schema, enums } = processingConfig();
+                      await api("/schema/validate", { schema, enums });
                       setValidMessage("Schema and enum definitions are valid.");
                     })
                   }
                 >
                   <CheckCircle2 size={14} /> Validate schema
                 </Button>
-                <Button variant="outline" onClick={() => setSavePreset(true)}>
-                  <Save size={14} /> Save preset
-                </Button>
-                <ImportText
-                  accept=".json"
-                  onText={importPreset}
-                  label="Upload preset"
-                />
-                {configFiles("preset", "Open saved preset")}
               </div>
             </fieldset>
           </Section>
           <Section
-            number="04"
-            title="OpenAI model"
-            detail="Use an account-accessible model that supports Responses structured outputs."
+            id={id("model")}
+            title="Choose a model"
+            detail="An OpenAI model that supports structured outputs. Each row is one paid request to your account."
           >
             <div className="row">
               <Button
                 variant="outline"
-                disabled={busy}
+                disabled={busy || !!missingKey}
                 onClick={() =>
                   perform(async () => setModels(await api("/models/openai")))
                 }
               >
-                Load account models
+                Load my account&apos;s models
               </Button>
               {models.length > 0 && (
                 <select
@@ -1024,7 +1199,7 @@ export function Tool({
             </div>
             <Field
               label="Model ID"
-              hint="Manual entry is available. A one-row test verifies access and supported settings."
+              hint="Or type a model ID. Use “Test one row first” to check it works before a big run."
             >
               <input
                 placeholder="Enter your OpenAI model ID"
@@ -1032,12 +1207,10 @@ export function Tool({
                 onChange={(e) => patch({ model: e.target.value })}
               />
             </Field>
-            <details className="advanced">
-              <summary>Generation settings</summary>
+            <More label="Generation settings">
               <p className="hint">
-                Settings are omitted unless supplied. Support varies by model;
-                unsupported parameters produce a provider error in the one-row
-                test.
+                Leave these empty unless you need them. Support varies by model;
+                unsupported settings show an error in the one-row test.
               </p>
               <div className="grid3">
                 <Field label="Temperature (optional)">
@@ -1083,335 +1256,12 @@ export function Tool({
                   />
                 </Field>
               </div>
-            </details>
+            </More>
           </Section>
+          {outputSection}
         </>
       )}
-      {tool === "clean" && (
-        <Section
-          number="02"
-          title="Cleaning options"
-          detail="Source values outside the selected columns are preserved."
-        >
-          <Field label="Columns to normalize">
-            <div className="checkbox-grid">
-              {columns.map((col) => (
-                <Check
-                  key={col}
-                  label={col}
-                  value={c.columns.includes(col)}
-                  set={(v) =>
-                    patch({
-                      columns: v
-                        ? [...c.columns, col]
-                        : c.columns.filter((x: string) => x !== col),
-                    })
-                  }
-                />
-              ))}
-            </div>
-          </Field>
-          <div className="row wrap">
-            <Check
-              label="Normalize whitespace"
-              value={c.normalize}
-              set={(normalize) => patch({ normalize })}
-            />
-            <Check
-              label="Lowercase selected columns"
-              value={c.lowercase}
-              set={(lowercase) => patch({ lowercase })}
-            />
-            <Check
-              label="Drop rows with all selected fields empty"
-              value={c.drop_empty}
-              set={(drop_empty) => patch({ drop_empty })}
-            />
-          </div>
-          <Field
-            label="Duplicate keys"
-            hint="Rows matching all selected keys are deduplicated; the first row is retained."
-          >
-            <ColumnPicker
-              columns={columns}
-              value={c.duplicate_keys}
-              set={(duplicate_keys) => patch({ duplicate_keys })}
-            />
-          </Field>
-        </Section>
-      )}
-      {tool === "aggregate" && (
-        <Section
-          number="02"
-          title="Map research variables"
-          detail="Choose equivalent columns from any coded input. No earlier workshop stages are required."
-        >
-          <div className="grid2">
-            {[
-              "firm",
-              "date",
-              "relevance",
-              "dimension",
-              "relationship",
-              "theme",
-              "status",
-            ].map((name) => (
-              <Field
-                key={name}
-                label={
-                  name === "status"
-                    ? "Processing status (optional)"
-                    : name[0].toUpperCase() + name.slice(1)
-                }
-              >
-                <select
-                  value={c.mapping[name] || ""}
-                  onChange={(e) =>
-                    patch({ mapping: { ...c.mapping, [name]: e.target.value } })
-                  }
-                >
-                  <option value="">
-                    {name === "status"
-                      ? "Treat all rows as successfully coded"
-                      : "Choose a column…"}
-                  </option>
-                  {columns.map((col) => (
-                    <option key={col}>{col}</option>
-                  ))}
-                </select>
-              </Field>
-            ))}
-          </div>
-          <div className="notice">
-            Counts represent observed article–firm mentions, not unique events.
-            Shares use successfully coded, relevant mentions; themes exclude
-            “other_theme”. Invalid publication dates are excluded and reported.
-          </div>
-          <details className="advanced">
-            <summary>Expected categorical values</summary>
-            <p>
-              Relevance: true / 1 / yes. Dimension: environmental, social,
-              governance, multiple, none. Relationship: firm_action,
-              accusation_against_firm, firm_response,
-              external_esg_event_affecting_firm, other. Status: ok, failed,
-              pending, skipped_finbert_none, not_processed_limit.
-            </p>
-          </details>
-        </Section>
-      )}
-      {tool === "review" && (
-        <Section number="02" title="Human coding exercise">
-          <div className="row">
-            <Button
-              variant="outline"
-              onClick={() =>
-                patch({
-                  count: 5,
-                  seed: 42,
-                  fields: [
-                    "esg_dimension",
-                    "event_relationship",
-                    "theme_primary",
-                  ]
-                    .map((f) => columns.find((c) => c.endsWith(f)))
-                    .filter(Boolean),
-                })
-              }
-            >
-              Five-row ESG preset
-            </Button>
-          </div>
-          <Field label="Categorical fields to assess">
-            <div className="checkbox-grid">
-              {columns.map((col) => (
-                <Check
-                  key={col}
-                  label={col}
-                  value={c.fields.includes(col)}
-                  set={(v) => {
-                    patch({
-                      fields: v
-                        ? [...c.fields, col]
-                        : c.fields.filter((x: string) => x !== col),
-                    });
-                    setSample(null);
-                  }}
-                />
-              ))}
-            </div>
-          </Field>
-          <div className="grid2">
-            <Field label="Sample rows">
-              <input
-                type="number"
-                min={1}
-                max={500}
-                value={c.count}
-                onChange={(e) => patch({ count: Number(e.target.value) })}
-              />
-            </Field>
-            <Field label="Random seed">
-              <input
-                type="number"
-                value={c.seed}
-                onChange={(e) => patch({ seed: Number(e.target.value) })}
-              />
-            </Field>
-          </div>
-          <Button
-            disabled={!c.input || !c.fields.length || busy}
-            onClick={() =>
-              perform(async () => {
-                setSample(await api("/review/sample", c));
-                setLabels({});
-                setMetrics(null);
-              })
-            }
-          >
-            Load review sample
-          </Button>
-          {sample &&
-            sample.rows.map((item: any) => (
-              <div className="review-record" key={item.index}>
-                <h3>Record {item.index + 1}</h3>
-                <details>
-                  <summary>Read complete record</summary>
-                  <pre>{pretty(item.record)}</pre>
-                </details>
-                {c.fields.map((field: string) => (
-                  <Field
-                    key={field}
-                    label={field}
-                    hint={"Model value: " + String(item.record[field])}
-                  >
-                    <input
-                      list={"values-" + field}
-                      value={labels[item.index]?.[field] || ""}
-                      onChange={(e) =>
-                        setLabels({
-                          ...labels,
-                          [item.index]: {
-                            ...labels[item.index],
-                            [field]: e.target.value,
-                          },
-                        })
-                      }
-                      placeholder="Your judgment…"
-                    />
-                    <datalist id={"values-" + field}>
-                      {sample.values[field].map((v: string) => (
-                        <option key={v} value={v} />
-                      ))}
-                    </datalist>
-                  </Field>
-                ))}
-              </div>
-            ))}
-          {metrics && <pre className="notice">{pretty(metrics)}</pre>}
-        </Section>
-      )}
-      <Section
-        number={
-          tool === "news"
-            ? "03"
-            : tool === "llm"
-              ? "05"
-              : tool === "hf"
-                ? "04"
-                : "03"
-        }
-        title="Save output"
-        detail="Choose a destination for this tool’s results."
-      >
-        {["hf", "llm"].includes(tool) && (
-          <Field
-            label="Output-column prefix"
-            hint={
-              tool === "llm"
-                ? "Results also remain nested under <prefix>result. Individual fields use <prefix>field_<name>."
-                : "Original columns are preserved. Choose a prefix that does not overlap them."
-            }
-          >
-            <input
-              value={c.prefix}
-              onChange={(e) => patch({ prefix: e.target.value })}
-            />
-          </Field>
-        )}
-        <Destination
-          value={destination}
-          set={(destination) => patch({ destination })}
-          roots={roots}
-          folders={folders}
-        />
-        {tool === "news" && (
-          <div className="notice">
-            Article content from NewsAPI may be truncated. Raw results are saved
-            as returned, with search metadata. Cleaning and classification are
-            separate tools.
-          </div>
-        )}
-        {validMessage && (
-          <div role="status" className="success-message">
-            <CheckCircle2 size={16} />
-            {validMessage}
-          </div>
-        )}
-        <div className="run-row">
-          {tool === "review" ? (
-            <Button
-              disabled={!sample || busy}
-              onClick={() =>
-                perform(async () => {
-                  const result = await api("/review/save", {
-                    ...c,
-                    hash: sample.hash,
-                    labels: sample.rows.map((r: any) => ({
-                      index: r.index,
-                      values: labels[r.index] || {},
-                    })),
-                    destination,
-                  });
-                  setMetrics(result.metrics);
-                  await refresh();
-                })
-              }
-            >
-              <Save size={15} /> Save human labels & assess
-            </Button>
-          ) : (
-            <>
-              <Button
-                disabled={busy || !!missingKey || (tool !== "news" && !c.input)}
-                onClick={() => start()}
-              >
-                <Play size={14} />
-                {busy
-                  ? "Submitting…"
-                  : tool === "news"
-                    ? "Retrieve articles"
-                    : tool === "aggregate"
-                      ? "Aggregate & export"
-                      : "Process dataset"}
-              </Button>
-              {tool === "llm" && (
-                <Button
-                  variant="outline"
-                  disabled={busy || !!missingKey || !c.input}
-                  onClick={() => start(true)}
-                >
-                  <FlaskConical size={15} /> Test one row
-                </Button>
-              )}
-              <span className="hint">
-                {missingKey
-                  ? `Add your ${KEY_NAMES[step.needs!]} key first.`
-                  : "Progress appears under Jobs at the bottom."}
-              </span>
-            </>
-          )}
-        </div>
-      </Section>
+
       {preview && (
         <Modal
           title="Exact input preview"
@@ -1426,11 +1276,18 @@ export function Tool({
           </pre>
         </Modal>
       )}
+      {code && (
+        <CodeViewer
+          title={step.heading}
+          code={code}
+          close={() => setCode(null)}
+        />
+      )}
       {savePreset && (
         <Modal
           title="Save extraction preset"
           close={() => setSavePreset(false)}
-          description="Save instructions, enums, schema, and preset type together in the selected output folder."
+          description="Saves the instructions, allowed values, and fields together, in the folder chosen under Save the results."
         >
           <Field label="Preset filename">
             <input
@@ -1468,7 +1325,4 @@ export function Tool({
       )}
     </div>
   );
-}
-function FileBadge() {
-  return <span className="tiny-dot" />;
 }

@@ -4,6 +4,14 @@ const step = (page: Page, name: string) =>
     .getByRole("navigation", { name: "Workflow steps" })
     .getByRole("button", { name: new RegExp("^\\d\\s*" + name) });
 const active = (page: Page) => page.locator(".tool-container:not([hidden])");
+/** Open a folded "More …" section on the current step if it is closed. */
+const more = async (page: Page, label: string) => {
+  const details = active(page)
+    .locator("details.more")
+    .filter({ has: page.locator("summary", { hasText: label }) });
+  if ((await details.getAttribute("open")) === null)
+    await details.locator("summary").click();
+};
 const design = {
   instructions: "Extract products from the record. Use null for unknown names.",
   enums: { category: ["hardware", "software"] },
@@ -73,7 +81,7 @@ test("independent generation, refinements, manual edits, undo, model override an
     });
   });
   await openDesigner(page);
-  await expect(active(page)).toContainText("ESG evidence checks enabled");
+  await expect(active(page)).toContainText("ESG evidence checks on");
   await expect(active(page).getByLabel("Input dataset")).toHaveValue("");
   await active(page)
     .getByLabel("Model ID", { exact: true })
@@ -90,7 +98,7 @@ test("independent generation, refinements, manual edits, undo, model override an
   await expect(active(page).getByLabel("Custom instructions")).toHaveValue(
     design.instructions,
   );
-  await expect(active(page)).toContainText("Custom · no ESG requirements");
+  await expect(active(page)).toContainText("Custom design");
   expect(bodies[0].current_design).toBeNull();
   expect(bodies[0].mode).toBe("new");
   expect(bodies[0].model).toBe("design-model");
@@ -147,6 +155,7 @@ test("independent generation, refinements, manual edits, undo, model override an
   await expect(active(page).getByLabel("Custom instructions")).toHaveValue(
     "Manual instructions must survive.",
   );
+  await more(page, "Load or save");
   await active(page)
     .getByRole("button", { name: "Save preset", exact: true })
     .click();
@@ -169,14 +178,14 @@ test("independent generation, refinements, manual edits, undo, model override an
   await active(page)
     .getByRole("button", { name: "ESG starter", exact: true })
     .click();
-  await expect(active(page)).toContainText("ESG evidence checks enabled");
+  await expect(active(page)).toContainText("ESG evidence checks on");
   const select = active(page).getByLabel("Open saved preset");
   const value = await select
     .locator("option")
     .filter({ hasText: filename })
     .getAttribute("value");
   await select.selectOption(value!);
-  await expect(active(page)).toContainText("Custom · no ESG requirements");
+  await expect(active(page)).toContainText("Custom design");
   expect(errors).toEqual([]);
 });
 test("clarifications and failures preserve fields; cancelled and stale replies are discarded", async ({

@@ -16,6 +16,7 @@ import {
   Download,
   FlaskConical,
   Save,
+  Trash2,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import {
@@ -28,23 +29,27 @@ import {
 import { api, Entry, Ref, Root, keyOf, query, pretty } from "@/lib/api";
 import { Field } from "./fields";
 import { stepOf } from "./steps";
+import { FolderPicker } from "./folder-picker";
 
 /** Steps a dataset can be sent to from the explorer or a preview. */
-const DATASET_STEPS = ["clean", "hf", "llm", "review", "aggregate"];
+const DATASET_STEPS = ["hf", "llm"];
 export function Modal({
   title,
   description,
   children,
   close,
+  wide = false,
 }: {
   title: string;
   description?: string;
   children: React.ReactNode;
   close: () => void;
+  /** For code and tables that need the width of the screen. */
+  wide?: boolean;
 }) {
   return (
     <Dialog open onOpenChange={(open) => !open && close()}>
-      <DialogContent className="workbench-dialog">
+      <DialogContent className={"workbench-dialog" + (wide ? " wide" : "")}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
@@ -67,6 +72,8 @@ type Props = {
   setFolder: (f: Ref) => void;
   upload: (file: File) => Promise<Ref>;
   createExample: () => void;
+  /** Close anything showing a file that was just deleted. */
+  deleted: (f: Ref) => void;
 };
 export function Explorer({
   roots,
@@ -79,7 +86,9 @@ export function Explorer({
   setFolder,
   upload,
   createExample,
+  deleted,
 }: Props) {
+  const [picking, setPicking] = useState(false);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [action, setAction] = useState<{ type: string; file?: Entry } | null>(
@@ -91,8 +100,7 @@ export function Explorer({
   const execute = async () => {
     setBusy(true);
     try {
-      if (action?.type === "attach") await api("/roots", { path: name });
-      else if (action?.type === "mkdir")
+      if (action?.type === "mkdir")
         await api("/folders", {
           ...selectedFolder,
           path: [selectedFolder.path, name].filter(Boolean).join("/"),
@@ -236,7 +244,7 @@ export function Explorer({
             }}
           />
         </label>
-        <Button variant="outline" size="sm" onClick={() => begin("attach")}>
+        <Button variant="outline" size="sm" onClick={() => setPicking(true)}>
           <FolderOpen size={14} /> Open folder
         </Button>
         <Button
@@ -321,33 +329,70 @@ export function Explorer({
           {selectedFolder.path ? "/" + selectedFolder.path : ""}
         </strong>
       </div>
-      {action && action.type !== "menu" && (
+      {picking && (
+        <FolderPicker
+          title="Open a folder"
+          description="Show a folder from this computer in Files. Nothing is moved or copied, and it stays listed after restarting."
+          confirm="Open"
+          close={() => setPicking(false)}
+          onPick={async (path) => {
+            const root = await api<Root>("/roots", { path });
+            setPicking(false);
+            setFolder({ root: root.id, path: "" });
+            await refresh();
+          }}
+        />
+      )}
+      {action?.type === "delete" && (
         <Modal
-          title={
-            action.type === "attach"
-              ? "Open a folder"
-              : action.type === "mkdir"
-                ? "Create a folder"
-                : "Rename file or folder"
+          title={`Delete ${action.file!.name}?`}
+          description={
+            action.file!.kind === "folder"
+              ? "Deletes this empty folder from your computer."
+              : "Deletes this file from your computer. It does not go to the Trash, so this cannot be undone."
           }
           close={() => setAction(null)}
-          description={
-            action.type === "attach"
-              ? "Show an existing folder from this computer in Files. It stays listed after restarting; nothing is moved or copied."
-              : undefined
-          }
         >
-          <Field
-            label={action.type === "attach" ? "Absolute folder path" : "Name"}
-          >
+          <div className="row wrap">
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await api("/delete", { file: action.file });
+                  deleted(action.file!);
+                  setAction(null);
+                  await refresh();
+                } catch (e) {
+                  report(e);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <Trash2 size={15} /> Delete
+            </Button>
+            <Button variant="outline" onClick={() => setAction(null)}>
+              Cancel
+            </Button>
+          </div>
+        </Modal>
+      )}
+      {(action?.type === "mkdir" || action?.type === "rename") && (
+        <Modal
+          title={
+            action.type === "mkdir"
+              ? "Create a folder"
+              : "Rename file or folder"
+          }
+          close={() => setAction(null)}
+        >
+          <Field label="Name">
             <input
               autoFocus
               value={name}
-              placeholder={
-                action.type === "attach"
-                  ? "e.g. /Users/you/Documents/Research"
-                  : "new-folder"
-              }
+              placeholder="new-folder"
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && execute()}
             />
@@ -397,6 +442,13 @@ export function Explorer({
               onClick={() => begin("rename", action.file!)}
             >
               <Pencil size={14} /> Rename
+            </Button>
+            <Button
+              variant="outline"
+              className="danger-outline"
+              onClick={() => setAction({ type: "delete", file: action.file })}
+            >
+              <Trash2 size={14} /> Delete…
             </Button>
           </div>
         </Modal>

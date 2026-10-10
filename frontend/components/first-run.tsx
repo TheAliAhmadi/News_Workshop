@@ -4,6 +4,7 @@ import { BrainCircuit, FolderOpen, KeyRound } from "lucide-react";
 import { Button } from "./ui/button";
 import { Modal } from "./explorer";
 import { Check, Field } from "./fields";
+import { FolderPicker } from "./folder-picker";
 import { KeyLinks } from "./key-links";
 import { ModelPreparation } from "./model-preparation";
 import { api } from "@/lib/api";
@@ -27,11 +28,12 @@ export function FirstRunGuide({
   report: (e: unknown) => void;
 }) {
   const [step, setStep] = useState<Step>("folder");
-  const [folder, setFolder] = useState(
+  const folder =
+    bootstrap.locations?.research ||
     bootstrap.settings?.research_folder ||
-      bootstrap.default_research_folder ||
-      "",
-  );
+    bootstrap.default_research_folder ||
+    "";
+  const [picking, setPicking] = useState(false);
   const [keys, setKeys] = useState({ news: "", openai: "" });
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -48,20 +50,11 @@ export function FirstRunGuide({
     onFinish();
   };
 
-  const chooseFolder = async () => {
-    setBusy(true);
-    try {
-      const result = await api("/research-folder", {
-        path: folder,
-        create: true,
-      });
-      onBootstrapChange({ roots: result.roots });
-      advance();
-    } catch (e) {
-      report(e);
-    } finally {
-      setBusy(false);
-    }
+  const chooseFolder = async (path: string) => {
+    const result = await api("/research-folder", { path });
+    onBootstrapChange({ roots: result.roots, locations: result.locations });
+    setPicking(false);
+    advance();
   };
 
   const saveKeys = async () => {
@@ -109,24 +102,26 @@ export function FirstRunGuide({
             <FolderOpen size={15} /> Your research files stay on this computer,
             in a folder you choose. Most students keep the suggested folder.
           </p>
-          <Field
-            label="Research folder"
-            hint="Enter a full path. It is created if it does not exist yet."
-          >
-            <input
-              value={folder}
-              onChange={(e) => setFolder(e.target.value)}
-              spellCheck={false}
-            />
-          </Field>
+          <div className="chosen-folder">
+            <FolderOpen size={18} />
+            <code>{folder}</code>
+          </div>
           <div className="row wrap">
-            <Button onClick={chooseFolder} disabled={busy || !folder.trim()}>
-              Use this folder
-            </Button>
-            <Button variant="outline" onClick={advance}>
-              Keep the default
+            <Button onClick={advance}>Use this folder</Button>
+            <Button variant="outline" onClick={() => setPicking(true)}>
+              Choose a different folder…
             </Button>
           </div>
+          {picking && (
+            <FolderPicker
+              title="Choose your research folder"
+              description="New results are saved here. You can create a new folder inside, for example in Documents."
+              confirm="Use this folder"
+              start={folder}
+              close={() => setPicking(false)}
+              onPick={chooseFolder}
+            />
+          )}
         </>
       )}
 

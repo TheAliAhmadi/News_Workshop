@@ -9,7 +9,7 @@ from workbench.api import create_app
 from workbench.files import read_dataset, save_dataset, digest
 from workbench.configuration import news_query, domains, text_input, validate_schema, validate_config, templates
 from workbench.jobs import Context, JobManager, run_job
-from workbench.processors import hf_process, llm_process, news_process, aggregate_process
+from workbench.processors import hf_process, llm_process, news_process
 
 @pytest.fixture
 def client(tmp_path):
@@ -210,6 +210,7 @@ def test_news_errors_explain_what_to_do(tmp_path,monkeypatch):
 
 def test_provider_errors_are_plain_and_never_echo_details():
     from workbench.processors import safe_error
+    assert 'no longer exists' in safe_error(FileNotFoundError(2, 'No such file', '/Users/x/secret.csv'))
     class APIError(Exception):
         def __init__(self,status):super().__init__('Bearer sk-secret leaked');self.status_code=status
     assert safe_error(APIError(401)).startswith('The API key was rejected')
@@ -218,16 +219,40 @@ def test_provider_errors_are_plain_and_never_echo_details():
     assert 'internet connection' in safe_error(APIConnectionError('sk-secret'))
     assert all('sk-secret' not in safe_error(e) for e in (APIError(400),APIError(401),APIConnectionError('sk-secret')))
 
-def test_human_validation_and_aggregation_without_pipeline(client,tmp_path):
-    data=[{'company':'Acme','date':'2026-09-01','relevant':True,'dimension':'social','relationship':'firm_action','theme':'labor'}]
-    ref=upload(client,'coded.json',json.dumps(data))
-    sample=client.post('/api/review/sample',json={'input':ref,'fields':['dimension'],'count':5}).json()
-    r=client.post('/api/review/save',json={'input':ref,'hash':sample['hash'],'fields':['dimension'],'labels':[{'index':0,'values':{'dimension':'social'}}],'destination':dest(client,'human.json')})
-    assert r.status_code==200,r.text
-    assert r.json()['metrics']['dimension']['agreement']==1
-    mapped={'firm':'company','date':'date','relevance':'relevant','dimension':'dimension','relationship':'relationship','theme':'theme'}
-    result=aggregate_process(context(tmp_path),pd.DataFrame(data),{'mapping':mapped})
-    assert result.iloc[0]['soc_share']==1 and result.iloc[0]['observed_mentions']==1
+def test_browse_folders_by_clicking(client,tmp_path,monkeypatch):
+    monkeypatch.setattr(Path,'home',classmethod(lambda cls:tmp_path))
+    (tmp_path/'Documents'/'Research').mkdir(parents=True);(tmp_path/'.hidden').mkdir();(tmp_path/'notes.txt').write_text('x')
+    home=client.post('/api/browse',json={}).json()
+    assert home['path']==str(tmp_path.resolve()) and [f['name'] for f in home['folders']]==['Documents','research','state']
+    assert {'name':'Documents','path':str(tmp_path/'Documents')} in home['shortcuts']
+    docs=client.post('/api/browse',json={'path':str(tmp_path/'Documents')}).json()
+    assert docs['parent']==str(tmp_path.resolve()) and docs['folders'][0]['name']=='Research'
+    made=client.post('/api/browse/folder',json={'path':str(tmp_path/'Documents'),'name':'Class 2026'}).json()
+    assert made['path'].endswith('Class 2026') and (tmp_path/'Documents'/'Class 2026').is_dir()
+    assert client.post('/api/browse/folder',json={'path':str(tmp_path),'name':'../escape'}).status_code==400
+    assert client.post('/api/browse',json={'path':str(tmp_path/'missing')}).status_code==400
+    # Browsing needs the session token, like any change.
+    assert client.post('/api/browse',json={},headers={'x-workbench-token':'bad'}).status_code==403
+
+def test_chosen_research_folder_becomes_primary_now(client,tmp_path):
+    chosen=tmp_path/'chosen'
+    r=client.post('/api/research-folder',json={'path':str(chosen),'create':True}).json()
+    assert r['roots'][0]['path']==str(chosen.resolve()) and r['locations']['research']==str(chosen.resolve())
+    assert client.get('/api/roots').json()[0]['path']==str(chosen.resolve())
+
+def test_delete_files_and_clear_job_history(client):
+    ref=upload(client)
+    assert client.post('/api/delete',json={'file':ref}).json()=={'ok':True}
+    assert not client.workspace.resolve(ref).exists()
+    client.post('/api/folders',json={'root':client.root,'path':'empty'})
+    assert client.post('/api/delete',json={'file':{'root':client.root,'path':'empty'}}).status_code==200
+    assert client.post('/api/delete',json={'file':{'root':client.root,'path':''}}).status_code==400
+    ref=upload(client)
+    done=client.post('/api/jobs',json={'tool':'clean','input':ref,'config':{},'destination':dest(client,'a.csv')}).json()
+    queued=client.post('/api/jobs',json={'tool':'clean','input':ref,'config':{},'destination':dest(client,'b.csv')}).json()
+    Context(client.manager.folder(done['id']),{}).update(state='completed')
+    cleared=client.post('/api/jobs/clear',json={}).json()
+    assert cleared['removed']==1 and [j['id'] for j in cleared['jobs']]==[queued['id']]
 
 def test_real_spawned_worker_queue(tmp_path):
     app=create_app(tmp_path/'state',tmp_path/'research',start_worker=True)

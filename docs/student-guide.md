@@ -77,9 +77,13 @@ Every step can be skipped. **Connections** is always in the top bar, and FinBERT
 
 ## Everyday use
 
-The sidebar lists the research steps in order: **Collect, Clean, Classify, Extract, Validate, Aggregate**. A key icon next to a step means it needs a key you have not added yet. Each step works on its own: choose any CSV or JSON file as its input, and it saves a new file, so your originals never change.
+The sidebar lists the three steps in order: **Collect news → Classify → Extract**. A key icon next to a step means it needs a key you have not added yet. Each step works on its own: choose any CSV or JSON file as its input, and it saves a new file, so your originals never change. When a job finishes, its row under **Jobs** offers the next step, such as **Classify these**.
 
-Under **Files**, upload datasets, open a file to preview its rows, or use **Open folder** to show another folder from your computer. A file's **⋯** menu and its preview both have **Use in** buttons that send it to a step. Your research files are in the `research_workspace` folder inside `News_Workshop` unless you chose another.
+Each step page starts with **How this step works**, a flowchart that fills in with your settings. Green boxes happen on your computer, blue boxes over the internet; click a box to jump to that setting. **Show the Python code** (top right) shows a short script that does exactly what the page will do. Use **Download** to save it, then run it from the `News_Workshop` folder with the command at the top of the script. The second tab, **Inside the workbench**, shows the code the workbench itself runs.
+
+Settings most people never change are folded under **More …** sections.
+
+Under **Files**, upload datasets, open a file to preview its rows, or use **Open folder** to show another folder from your computer: click through your folders (Desktop, Documents, …), or make a new one, then choose it. A file's **⋯** menu has **Use in Classify / Extract**, **Download**, **Rename**, and **Delete…**. To change your main research folder, open **Help (?)** and choose **Change…** next to Research folder. Your research files are in the `research_workspace` folder inside `News_Workshop` unless you chose another.
 
 Closing the terminal window stops the workbench. Interrupted jobs keep their checkpoints; resume them explicitly after the next start.
 
@@ -95,7 +99,7 @@ The default classifier (`yiyanghkust/finbert-esg`, about 440 MB) downloads on fi
 
 ## Jobs
 
-The **Jobs** bar at the bottom shows what is running; click it to open or close the list. One job runs at a time, and jobs keep running while you switch steps. If something goes wrong, the job shows a plain explanation, such as a rejected key or a NewsAPI plan limit. Stopped or interrupted jobs keep their finished rows: **Resume** continues and retries failed rows, and the folder icon resumes into a different file. **Open result** shows the saved file.
+The **Jobs** bar at the bottom shows what is running; click it to open or close the list. One job runs at a time, and jobs keep running while you switch steps. If something goes wrong, the job shows a plain explanation, such as a rejected key or a NewsAPI plan limit. Stopped or interrupted jobs keep their finished rows: **Resume** continues and retries failed rows, and the folder icon resumes into a different file. **Open result** shows the saved file. **Clear history** removes finished jobs from the list; your result files are kept.
 
 ## Updating and removing
 

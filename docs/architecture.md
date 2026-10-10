@@ -16,11 +16,11 @@ Outputs are published atomically and source columns are retained for classificat
 
 ## Processing
 
-`configuration.py` validates combined queries, domain filters, ordered text selection, independent mappings, and the supported strict schema subset. `processors.py` implements independent NewsAPI, compatible Transformers classification, schema-constrained OpenAI Responses extraction, cleaning, and aggregation. It imports the existing tested normalization, serialization, ESG evidence validation, and mention-count logic from `pipeline/` and `schemas/`.
+`configuration.py` validates combined queries, domain filters, ordered text selection, independent mappings, and the supported strict schema subset. `processors.py` implements independent NewsAPI, compatible Transformers classification, and schema-constrained OpenAI Responses extraction, plus a text-cleaning job with no screen that tests use as a fast, offline job. It imports the existing tested normalization, serialization, and ESG evidence validation from `pipeline/` and `schemas/`. `teaching.py` builds the "Show the Python code" scripts from the current settings and returns the backend functions' source; `tests/test_teaching.py` runs each generated script against simulated providers.
 
 The LLM processor validates returned JSON against the exact submitted schema and records schema hash, requested/actual model, response ID, usage, actual text, and truncation information. ESG semantic/evidence checks are enabled only by that preset. Transient provider failures have bounded retries; the job panel can retry failed rows while retaining successful results. HF records native labels/all scores, requested/resolved model revision, word/token counts, effective tokenized text, and row status.
 
-Human review is a direct independent API operation with an input hash, deterministic sampling, saved labels, and agreement metrics. Aggregation uses independent input mappings and retains publication-month mention definitions.
+The interface has three steps: Collect news, Classify, and Extract. `frontend/components/flow.tsx` draws each step's flowchart from its settings; `code-viewer.tsx` shows the teaching code; `folder-picker.tsx` browses folders through `/api/browse`.
 
 ## API groups
 
@@ -28,12 +28,14 @@ Human review is a direct independent API operation with an input hash, determini
 | --- | --- |
 | `/api/bootstrap`, `/api/connections`, `/api/health` | Session token, defaults/templates, connection state, worker health |
 | `/api/roots`, `/api/roots/detach`, `/api/tree` | Attach/detach and browse research folders |
-| `/api/folders`, `/api/upload`, `/api/rename`, `/api/preview`, `/api/text`, `/api/download` | Student file operations |
+| `/api/folders`, `/api/upload`, `/api/rename`, `/api/delete`, `/api/preview`, `/api/text`, `/api/download` | Student file operations |
+| `/api/browse`, `/api/browse/folder`, `/api/research-folder` | Pick or create folders by clicking; change the main research folder |
+| `/api/code` | Teaching script and backend source for a step |
 | `/api/sources`, `/api/models/hf`, `/api/models/hf/validate`, `/api/models/openai`, `/api/devices` | Provider discovery and compatibility |
 | `/api/schema/validate`, `/api/input-preview` | Validate configuration and preview exact input/prompt |
 | `/api/jobs` and `/api/jobs/{id}` | Submit independent requests; inspect persisted jobs |
 | `/api/jobs/{id}/cancel`, `/resume`, `/checkpoint` | Stop, recover/retry, and download saved rows |
-| `/api/review/sample`, `/api/review/save`, `/api/examples` | Independent human review and opt-in labeled synthetic examples |
+| `/api/jobs/clear`, `/api/examples` | Clear finished job history; opt-in labeled synthetic examples |
 
 ## Project directories
 

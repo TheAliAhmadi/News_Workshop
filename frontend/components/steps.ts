@@ -1,8 +1,5 @@
 import {
   BrainCircuit,
-  Brush,
-  ChartNoAxesCombined,
-  ClipboardCheck,
   Newspaper,
   Sparkles,
   type LucideIcon,
@@ -27,61 +24,37 @@ export type Step = {
 export const STEPS: Step[] = [
   {
     id: "news",
-    title: "Collect",
-    detail: "Find news articles",
+    title: "Collect news",
+    detail: "Search NewsAPI",
     heading: "Collect news",
     intro:
-      "Search NewsAPI for articles about a company and topic, and save them as a dataset.",
+      "Search NewsAPI for articles about a company and a topic, and save them as a table you can use in the next steps.",
     icon: Newspaper,
     needs: "news",
   },
   {
-    id: "clean",
-    title: "Clean",
-    detail: "Tidy and de-duplicate",
-    heading: "Clean data",
-    intro:
-      "Normalize text in selected columns and remove duplicate rows. The result is saved as a new file.",
-    icon: Brush,
-  },
-  {
     id: "hf",
     title: "Classify",
-    detail: "FinBERT, on this computer",
-    heading: "Classify text",
+    detail: "Hugging Face, on your computer",
+    heading: "Classify with a Hugging Face model",
     intro:
-      "Label each row with a text classifier such as FinBERT-ESG. It runs on this computer and needs no key.",
+      "Give every article a label, such as Environmental, Social, or Governance, using a model that runs on your own computer. No key is needed.",
     icon: BrainCircuit,
   },
   {
     id: "llm",
     title: "Extract",
-    detail: "Structured fields with AI",
-    heading: "Extract with AI",
+    detail: "OpenAI, with your own fields",
+    heading: "Extract with an LLM",
     intro:
-      "Turn article text into your own research variables with an OpenAI model and a schema you design.",
+      "Ask an OpenAI model to read every article and fill in the fields you design, such as the event type or who was involved.",
     icon: Sparkles,
     needs: "openai",
   },
-  {
-    id: "review",
-    title: "Validate",
-    detail: "Check results by hand",
-    heading: "Validate by hand",
-    intro:
-      "Label a random sample yourself and measure how often you agree with the coded values.",
-    icon: ClipboardCheck,
-  },
-  {
-    id: "aggregate",
-    title: "Aggregate",
-    detail: "Firm-month measures",
-    heading: "Aggregate & export",
-    intro:
-      "Turn coded articles into firm–month mention counts and shares, ready for analysis.",
-    icon: ChartNoAxesCombined,
-  },
 ];
+
+/** The step whose results feed into each step. */
+export const NEXT_STEP: Record<string, string> = { news: "hf", hf: "llm" };
 
 export const stepOf = (id: string) => STEPS.find((s) => s.id === id)!;
 

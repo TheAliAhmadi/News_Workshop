@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import random
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from config.settings import FINBERT_MODEL_NAME
 from . import paths
-from .files import Workspace, read_dataset, read_user_text, records, digest
+from .files import Workspace, browse, create_folder, read_dataset, read_user_text, records, digest
 from .configuration import SOURCES, templates, validate_schema, validate_config
 from .credentials import CredentialStore
 from .jobs import JobManager
@@ -121,9 +120,18 @@ def create_app(state=None, default=None, start_worker=True):
         if not body.get('create') and not folder.is_dir():
             raise ValueError('Enter an existing absolute directory path, or choose to create it.')
         folder.mkdir(parents=True, exist_ok=True)
-        attached = workspace.attach(str(folder))
+        attached = workspace.attach(str(folder), primary=True)
         settings.update_settings({'research_folder': str(folder)})
-        return {'root': attached, 'roots': workspace.list_roots()}
+        return {'root': attached, 'roots': workspace.list_roots(), 'locations': locations()}
+
+    # Browsing is a POST so it needs the session token, like every change.
+    @app.post('/api/browse')
+    def browse_folders(body: dict):
+        return browse(body.get('path'))
+
+    @app.post('/api/browse/folder')
+    def browse_create(body: dict):
+        return create_folder(body['path'], body.get('name'))
 
     @app.get('/api/preferences')
     def read_preferences():
@@ -233,6 +241,36 @@ def create_app(state=None, default=None, start_worker=True):
         workspace.write(body['file'], body['content'], body.get('overwrite', False))
         return {'hash': digest(p)}
 
+    @app.post('/api/delete')
+    def delete(body: dict):
+        target = workspace.resolve(body['file'], directory=True)
+        if target == Path(workspace.roots[body['file']['root']]).resolve():
+            raise ValueError('Use Close folder to remove a whole folder from Files.')
+        ref = {'root': body['file']['root'], 'path': body['file']['path']}
+        if any(j['state'] in ('queued', 'running') and j.get('output') == ref for j in manager.list()):
+            raise ValueError('A running job is writing this file. Stop the job first.')
+        if target.is_dir():
+            if any(target.iterdir()):
+                raise ValueError('Only empty folders can be deleted here. Delete the files inside first.')
+            target.rmdir()
+        else:
+            target.unlink()
+        return {'ok': True}
+
+    @app.post('/api/code')
+    def code(body: dict):
+        from .teaching import teaching_code
+        source = workspace.resolve(body['input']) if body.get('input') else None
+        dest = body.get('destination') or {}
+        output = None
+        if dest.get('filename'):
+            try:
+                folder = workspace.resolve({'root': dest.get('root') or next(iter(workspace.roots)), 'path': dest.get('path', '')}, directory=True)
+                output = folder / dest['filename']
+            except ValueError:
+                output = dest['filename']
+        return teaching_code(body['tool'], body.get('config') or {}, source, output)
+
     @app.get('/api/download')
     def download(root: str, path: str):
         p = workspace.resolve({'root': root, 'path': path})
@@ -332,6 +370,10 @@ def create_app(state=None, default=None, start_worker=True):
     def submit(body: dict):
         return manager.submit(body)
 
+    @app.post('/api/jobs/clear')
+    def clear_jobs(body: dict | None = None):
+        return manager.clear()
+
     @app.get('/api/jobs/{job_id}')
     def job_detail(job_id: str):
         folder = manager.folder(job_id)
@@ -354,45 +396,6 @@ def create_app(state=None, default=None, start_worker=True):
     @app.post('/api/jobs/{job_id}/resume')
     def resume(job_id: str, body: dict):
         return manager.resume(job_id, body.get('destination'))
-
-    @app.post('/api/review/sample')
-    def review_sample(body: dict):
-        p = workspace.resolve(body['input'])
-        df = read_dataset(p)
-        fields = body.get('fields', [])
-        if not fields or any(f not in df.columns for f in fields):
-            raise ValueError('Select existing categorical columns to review.')
-        indexes = sorted(random.Random(body.get('seed', 42)).sample(range(len(df)), min(len(df), max(1, min(500, body.get('count', 5))))))
-        return {'hash': digest(p), 'rows': [{'index': i, 'record': records(df.iloc[[i]])[0]} for i in indexes], 'values': {f: sorted({str(v) for v in df[f]}) for f in fields}}
-
-    @app.post('/api/review/save')
-    def review_save(body: dict):
-        from sklearn.metrics import cohen_kappa_score
-        from .files import save_dataset
-        p = workspace.resolve(body['input'])
-        if digest(p) != body['hash']:
-            raise ValueError('Input changed since sampling. Reload the sample before saving labels.')
-        df = read_dataset(p)
-        output, metrics = [], {}
-        for field in body['fields']:
-            if field not in df.columns:
-                raise ValueError('Review field missing from source.')
-            predicted, gold = [], []
-            for item in body['labels']:
-                idx = item['index']
-                value = item['values'].get(field, '')
-                if value == '':
-                    raise ValueError('Complete every human label before saving.')
-                predicted.append(str(df.iloc[idx][field])); gold.append(str(value))
-                output.append({'row_index': idx, 'input_hash': body['hash'], 'field': field, 'predicted': predicted[-1], 'human': gold[-1]})
-            agreement = sum(a == b for a, b in zip(predicted, gold)) / len(gold) if gold else None
-            kappa = cohen_kappa_score(predicted, gold) if len(set(predicted + gold)) > 1 else None
-            metrics[field] = {'n': len(gold), 'agreement': agreement, 'kappa': None if kappa is None or pd.isna(kappa) else kappa}
-        target, ref = workspace.destination(body['destination'])
-        if target == p:
-            raise ValueError('Save human labels to a separate output file.')
-        save_dataset(pd.DataFrame(output), target, body['destination'].get('overwrite', False), digest(target) if target.exists() else None)
-        return {'output': ref, 'metrics': metrics}
 
     @app.post('/api/examples')
     def example(body: dict):
