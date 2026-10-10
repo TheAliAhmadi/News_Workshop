@@ -55,6 +55,13 @@ def read_line(variable, path):
     return f'{variable} = pd.{reader}(INPUT_FILE)'
 
 
+def save_line(variable, path):
+    """Write a table in the format its filename asks for."""
+    if Path(str(path)).suffix.lower() == '.json':
+        return f'{variable}.to_json(OUTPUT_FILE, orient="records", indent=2, force_ascii=False)'
+    return f'{variable}.to_csv(OUTPUT_FILE, index=False)'
+
+
 def collect_script(config, output):
     company = (config.get('company') or '').strip() or 'Microsoft'
     topic = (config.get('query') or '').strip() or 'layoffs OR hiring'
@@ -124,7 +131,7 @@ while len(articles) < MAX_RESULTS:
 # 4. Turn the list of articles into a table (one row per article) and save it.
 table = pd.json_normalize(articles[:MAX_RESULTS])
 table["focal_firm"] = company
-table.to_csv(OUTPUT_FILE, index=False)
+{save_line('table', output)}
 print(f"Saved {{len(table)}} articles to {{OUTPUT_FILE}}")
 '''
 
@@ -181,7 +188,7 @@ results = classifier(texts, batch_size={int(config.get('batch_size') or 8)}, tru
 # 5. Add the answers as new columns next to the original ones, and save.
 table["{prefix}label"] = [r["label"] for r in results]
 table["{prefix}score"] = [round(r["score"], 3) for r in results]
-table.to_csv(OUTPUT_FILE, index=False)
+{save_line('table', output)}
 print(table[["{prefix}label", "{prefix}score"]].value_counts().head(10))
 print(f"Saved {{len(table)}} classified rows to {{OUTPUT_FILE}}")
 '''
@@ -272,7 +279,7 @@ for number, (_, row) in enumerate(table.iterrows(), start=1):
 # 5. One new column per field, next to the original columns, then save.
 fields = pd.json_normalize(answers).add_prefix("{prefix}")
 result = pd.concat([table.reset_index(drop=True), fields], axis=1)
-result.to_csv(OUTPUT_FILE, index=False)
+{save_line('result', output)}
 print(f"Saved {{len(result)}} rows to {{OUTPUT_FILE}}")
 '''
 
