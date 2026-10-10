@@ -1,6 +1,6 @@
 import { test, expect, Page } from "@playwright/test";
 import { mkdtempSync } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 const csv =
@@ -27,26 +27,42 @@ const nested = {
   required: ["events"],
   additionalProperties: false,
 };
+const step = (page: Page, name: string) =>
+  page
+    .getByRole("navigation", { name: "Workflow steps" })
+    .getByRole("button", { name: new RegExp("^\\d\\s*" + name) });
 const active = (page: Page) => page.locator(".tool-container:not([hidden])");
+/** Open a folded "More …" section on the current step if it is closed. */
+const more = async (page: Page, label: string) => {
+  const details = active(page)
+    .locator("details.more")
+    .filter({ has: page.locator("summary", { hasText: label }) });
+  if ((await details.getAttribute("open")) === null)
+    await details.locator("summary").click();
+};
 test("explorer, independent tools, nested presets and real worker output", async ({
   page,
+  request,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "News API", exact: true }),
+    page.getByRole("heading", { name: "Collect news", exact: true }),
   ).toBeVisible();
-  const testFolder = mkdtempSync(join(tmpdir(), "workbench-browser-"));
+  // The test server's home folder is a temporary directory (see e2e.sh).
+  const folderName = `workbench-browser-${Date.now()}`;
   await page.getByRole("button", { name: "Open folder", exact: true }).click();
-  await page.getByLabel("Absolute folder path").fill(testFolder);
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Save", exact: true })
+  const picker = page.getByRole("dialog", { name: "Open a folder" });
+  await picker.getByRole("button", { name: "New folder here" }).click();
+  await picker.getByLabel("New folder name").fill(folderName);
+  await picker.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(picker.locator(".picker-path")).toContainText(folderName);
+  await picker
+    .getByRole("button", { name: `Open: ${folderName}`, exact: true })
     .click();
-  await page
-    .getByRole("button", { name: basename(testFolder), exact: true })
-    .click();
+  await expect(picker).toBeHidden();
+  await page.getByRole("button", { name: folderName, exact: true }).click();
   const suffix = Date.now().toString();
   const filename = `browser_${suffix}.csv`;
   await page.getByLabel("Company name", { exact: true }).fill("Microsoft");
@@ -56,7 +72,21 @@ test("explorer, independent tools, nested presets and real worker output", async
   await expect(page.locator(".query-preview code")).toHaveText(
     '"Microsoft" AND (layoffs OR "new hiring")',
   );
+  await more(page, "More search options");
   await page.getByRole("checkbox", { name: "Reuters reuters.com" }).check();
+  // The Python behind this step uses the settings on the page.
+  await active(page)
+    .getByRole("button", { name: "Show the Python code" })
+    .click();
+  const code = page.getByRole("dialog");
+  await expect(code).toContainText("company = 'Microsoft'");
+  await expect(code).toContainText("'domains': 'reuters.com'");
+  await expect(
+    code.getByRole("button", { name: "Download collect_news.py" }),
+  ).toBeVisible();
+  await code.getByRole("tab", { name: "Inside the workbench" }).click();
+  await expect(code).toContainText("def news_process(ctx, config):");
+  await page.keyboard.press("Escape");
   await page.locator(".icon-upload input").setInputFiles({
     name: filename,
     mimeType: "text/csv",
@@ -64,9 +94,25 @@ test("explorer, independent tools, nested presets and real worker output", async
   });
   await page.getByRole("button", { name: filename, exact: true }).click();
   await expect(page.locator(".dataset-summary")).toContainText("2 rows");
-  await page.locator("tbody tr").first().press("Enter");
-  await expect(page.getByRole("dialog")).toContainText(
+  await page
+    .locator(".file-container:not([hidden]) tbody tr")
+    .first()
+    .press("Enter");
+  const row = page.getByRole("dialog");
+  // Rows open as a readable article, with the raw data one tab away.
+  await expect(row.locator(".article-view h2")).toHaveText(
     "Fictional clean energy news",
+  );
+  await expect(row.locator(".article-lead")).toHaveText(
+    "Fictional software test",
+  );
+  await row.getByRole("button", { name: "Next" }).click();
+  await expect(row.locator(".article-view h2")).toHaveText(
+    "Fictional board news",
+  );
+  await row.getByRole("tab", { name: "Raw JSON" }).click();
+  await expect(row.locator(".record-inspector")).toContainText(
+    '"company": "Acme"',
   );
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: `Actions for ${filename}` }).click();
@@ -79,7 +125,7 @@ test("explorer, independent tools, nested presets and real worker output", async
     .click();
   await page.getByRole("button", { name: `Actions for ${renamed}` }).click();
   await page
-    .getByRole("button", { name: "Use in Hugging Face", exact: true })
+    .getByRole("button", { name: "Use in Classify", exact: true })
     .click();
   await expect(active(page).getByLabel("Input dataset")).toContainText(renamed);
   await active(page).getByRole("button", { name: "Move content up" }).click();
@@ -91,7 +137,9 @@ test("explorer, independent tools, nested presets and real worker output", async
   );
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: `Actions for ${renamed}` }).click();
-  await page.getByRole("button", { name: "Use in LLM", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Use in Extract", exact: true })
+    .click();
   await active(page)
     .getByRole("button", { name: "Blank custom schema", exact: true })
     .click();
@@ -118,6 +166,7 @@ test("explorer, independent tools, nested presets and real worker output", async
       await active(page).getByLabel("Output JSON Schema").inputValue(),
     ),
   ).toEqual(nested);
+  await more(page, "Allowed-value lists");
   await active(page).getByRole("button", { name: "JSON", exact: true }).click();
   await active(page).getByLabel("Enums JSON").fill('{"category":["a","b"]}');
   await active(page)
@@ -134,11 +183,26 @@ test("explorer, independent tools, nested presets and real worker output", async
   await expect(page.getByRole("dialog")).toContainText("Article text");
   await expect(page.getByRole("dialog")).not.toContainText("FinBERT");
   await page.getByRole("button", { name: "Close", exact: true }).click();
+  // Extraction needs a key before it can run; a session-only placeholder is
+  // enough to reach the backend's schema validation.
+  await active(page).getByRole("button", { name: "Add key" }).click();
+  await page
+    .getByRole("dialog")
+    .getByLabel(/^OpenAI key/)
+    .fill("sk-placeholder-for-tests");
+  await page.getByRole("button", { name: "Save and check" }).click();
+  // The dialog stays open to show the result of checking the key.
+  await expect(page.getByRole("dialog")).toContainText(
+    "Key checks are turned off for this run.",
+  );
+  await expect(page.getByRole("dialog")).toContainText("Saved key ending in");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(active(page).locator(".callout")).toHaveCount(0);
   await active(page)
     .getByLabel("Output JSON Schema")
     .fill(JSON.stringify({ ...nested, additionalProperties: true }));
   await active(page)
-    .getByRole("button", { name: "Process dataset", exact: true })
+    .getByRole("button", { name: "Extract from all rows", exact: true })
     .click();
   await expect(page.locator(".alert-bar")).toContainText(
     "additionalProperties",
@@ -147,9 +211,11 @@ test("explorer, independent tools, nested presets and real worker output", async
   await active(page)
     .getByLabel("Output JSON Schema")
     .fill(JSON.stringify(nested));
+  await more(page, "More save options");
   await active(page)
     .getByLabel("Workspace", { exact: true })
-    .selectOption({ label: basename(testFolder) });
+    .selectOption({ label: folderName });
+  await more(page, "Load or save");
   await active(page)
     .getByRole("button", { name: "Save preset", exact: true })
     .click();
@@ -175,7 +241,7 @@ test("explorer, independent tools, nested presets and real worker output", async
     .locator(".file-container:not([hidden])")
     .getByRole("button", { name: "Save", exact: true })
     .click();
-  await page.getByRole("tab", { name: "LLM extraction", exact: true }).click();
+  await step(page, "Extract").click();
   const presetSelect = active(page).getByLabel("Open saved preset");
   const optionValue = await presetSelect
     .locator("option")
@@ -185,28 +251,30 @@ test("explorer, independent tools, nested presets and real worker output", async
   await expect(active(page).getByLabel("Custom instructions")).toHaveValue(
     "Updated custom instructions",
   );
-  await page.getByRole("button", { name: `Actions for ${renamed}` }).click();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Clean", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Clean a dataset", exact: true }),
-  ).toBeVisible();
-  await active(page)
-    .getByLabel("Workspace", { exact: true })
-    .selectOption({ label: basename(testFolder) });
-  await active(page)
-    .getByLabel("Filename", { exact: true })
-    .fill(`clean_${suffix}.json`);
-  await active(page).getByLabel("Format", { exact: true }).selectOption("json");
-  await active(page)
-    .getByRole("button", { name: "Process dataset", exact: true })
-    .click();
+  // A real worker job. The Clean step has no screen any more, but the job
+  // system still runs it, which needs no network or model download.
+  const boot = await (await request.get("/api/bootstrap")).json();
+  const roots = await (await request.get("/api/roots")).json();
+  const root = roots.find((r: any) => r.name === folderName);
+  const submitted = await request.post("/api/jobs", {
+    headers: { "x-workbench-token": boot.token },
+    data: {
+      tool: "clean",
+      input: { root: root.id, path: renamed },
+      config: {},
+      destination: {
+        root: root.id,
+        path: "",
+        filename: `clean_${suffix}.json`,
+        format: "json",
+      },
+    },
+  });
+  expect(submitted.ok()).toBeTruthy();
   const job = page
     .locator(".job-row")
     .filter({ hasText: `clean_${suffix}.json` });
-  await expect(job).toContainText("completed", { timeout: 30000 });
+  await expect(job).toContainText("Done", { timeout: 30000 });
   await job.getByRole("button", { name: "Open result", exact: true }).click();
   await expect(
     page.locator(".file-container:not([hidden]) .dataset-summary"),
@@ -222,140 +290,31 @@ test("explorer, independent tools, nested presets and real worker output", async
   const separator = page.getByRole("separator", { name: "Resize explorer" });
   await separator.focus();
   await page.keyboard.press("ArrowRight");
-  await expect(separator).toHaveAttribute("aria-valuenow", "280");
+  await expect(separator).toHaveAttribute("aria-valuenow", "300");
   await page.reload();
   await expect(
     page.locator(".job-row").filter({ hasText: `clean_${suffix}.json` }),
-  ).toContainText("completed");
-  await page.getByRole("tab", { name: "News API", exact: true }).click();
+  ).toContainText("Done");
+  await step(page, "Collect").click();
   await expect(page.getByLabel("Company name", { exact: true })).toHaveValue(
     "Microsoft",
   );
-  expect(errors).toEqual([]);
-});
-
-test("human assessment and mapped aggregation use independent files", async ({
-  page,
-  request,
-}) => {
-  const suffix = Date.now().toString();
-  const boot = await (await request.get("/api/bootstrap")).json();
-  const testFolder = mkdtempSync(join(tmpdir(), "workbench-review-"));
-  const attached = await (
-    await request.post("/api/roots", {
-      headers: { "x-workbench-token": boot.token },
-      data: { path: testFolder },
-    })
-  ).json();
-  const coded = [
-    {
-      firm: "Fictional Acme",
-      date: "2026-09-01",
-      relevant: true,
-      dimension: "environmental",
-      relationship: "firm_action",
-      theme: "emissions",
-    },
-    {
-      firm: "Fictional Acme",
-      date: "2026-09-02",
-      relevant: true,
-      dimension: "social",
-      relationship: "firm_response",
-      theme: "labor",
-    },
-    {
-      firm: "Fictional Acme",
-      date: "invalid",
-      relevant: false,
-      dimension: "none",
-      relationship: "other",
-      theme: "other_theme",
-    },
-  ];
-  const response = await request.post("/api/upload", {
-    headers: { "x-workbench-token": boot.token },
-    multipart: {
-      root: attached.id,
-      file: {
-        name: `coded_${suffix}.json`,
-        mimeType: "application/json",
-        buffer: Buffer.from(JSON.stringify(coded)),
-      },
-    },
-  });
-  expect(response.ok()).toBeTruthy();
-  const ref = await response.json();
-  await page.goto("/");
+  await page.getByRole("button", { name: "Clear history" }).click();
   await page
-    .getByRole("tab", { name: "Human validation", exact: true })
+    .getByRole("dialog")
+    .getByRole("button", { name: "Clear history" })
     .click();
-  await active(page)
-    .getByLabel("Input dataset")
-    .selectOption(JSON.stringify(ref));
-  await active(page)
-    .getByRole("checkbox", { name: "dimension", exact: true })
-    .check();
-  await active(page)
-    .getByRole("button", { name: "Load review sample" })
-    .click();
-  await expect(active(page).locator(".review-record")).toHaveCount(3);
-  for (let i = 0; i < 3; i++)
-    await active(page)
-      .locator(".review-record")
-      .nth(i)
-      .getByLabel("dimension", { exact: true })
-      .fill(coded[i].dimension);
-  await active(page)
-    .getByLabel("Workspace", { exact: true })
-    .selectOption(attached.id);
-  await active(page)
-    .getByLabel("Filename", { exact: true })
-    .fill(`human_${suffix}.csv`);
-  await active(page)
-    .getByRole("button", { name: "Save human labels & assess" })
-    .click();
-  await expect(active(page).locator("pre.notice")).toContainText(
-    '"agreement": 1',
-  );
+  await expect(page.locator(".job-row")).toHaveCount(0);
+  await page.getByRole("button", { name: `Actions for ${renamed}` }).click();
+  await page.getByRole("button", { name: "Delete…" }).click();
   await page
-    .getByRole("tab", { name: "Aggregate / export", exact: true })
+    .getByRole("dialog", { name: `Delete ${renamed}?` })
+    .getByRole("button", { name: "Delete", exact: true })
     .click();
-  await active(page)
-    .getByLabel("Input dataset")
-    .selectOption(JSON.stringify(ref));
-  for (const [label, column] of Object.entries({
-    Firm: "firm",
-    Date: "date",
-    Relevance: "relevant",
-    Dimension: "dimension",
-    Relationship: "relationship",
-    Theme: "theme",
-  }))
-    await active(page).getByLabel(label, { exact: true }).selectOption(column);
-  await active(page)
-    .getByLabel("Workspace", { exact: true })
-    .selectOption(attached.id);
-  await active(page)
-    .getByLabel("Filename", { exact: true })
-    .fill(`aggregate_${suffix}.json`);
-  await active(page).getByLabel("Format", { exact: true }).selectOption("json");
-  await active(page)
-    .getByRole("button", { name: "Aggregate & export" })
-    .click();
-  const job = page
-    .locator(".job-row")
-    .filter({ hasText: `aggregate_${suffix}.json` });
-  await expect(job).toContainText("completed", { timeout: 30000 });
-  await job.locator(".job-name").click();
-  await expect(page.getByRole("dialog")).toContainText(
-    '"invalid_publication_dates": 1',
-  );
-  await page.getByRole("button", { name: "Close", exact: true }).click();
-  await job.getByRole("button", { name: "Open result", exact: true }).click();
   await expect(
-    page.locator(".file-container:not([hidden]) .dataset-summary"),
-  ).toContainText("1 rows");
+    page.getByRole("button", { name: renamed, exact: true }),
+  ).toHaveCount(0);
+  expect(errors).toEqual([]);
 });
 
 test("configuration Save As chooses a folder and duplicate visual names keep both fields", async ({
@@ -401,7 +360,7 @@ test("configuration Save As chooses a folder and duplicate visual names keep bot
     params: { root: root.id, path: sourceName },
   });
   expect(await original.text()).toBe("Original instructions");
-  await page.getByRole("tab", { name: "LLM extraction", exact: true }).click();
+  await step(page, "Extract").click();
   await active(page)
     .getByRole("button", { name: "JSON Schema", exact: true })
     .click();
@@ -434,8 +393,8 @@ test("configuration Save As chooses a folder and duplicate visual names keep bot
   await expect(active(page).locator(".inline-error")).toContainText(
     "Fix invalid JSON",
   );
-  await page.getByRole("tab", { name: "News API", exact: true }).click();
+  await step(page, "Collect").click();
   await expect(
-    page.getByRole("heading", { name: "News API", exact: true }),
+    page.getByRole("heading", { name: "Collect news", exact: true }),
   ).toBeVisible();
 });

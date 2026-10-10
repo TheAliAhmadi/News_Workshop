@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ChevronRight,
   ChevronDown,
@@ -14,8 +14,9 @@ import {
   MoreHorizontal,
   Pencil,
   Download,
-  X,
+  FlaskConical,
   Save,
+  Trash2,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import {
@@ -27,20 +28,29 @@ import {
 } from "./ui/dialog";
 import { api, Entry, Ref, Root, keyOf, query, pretty } from "@/lib/api";
 import { Field } from "./fields";
+import { stepOf } from "./steps";
+import { FolderPicker } from "./folder-picker";
+import { RecordView } from "./record-view";
+
+/** Steps a dataset can be sent to from the explorer or a preview. */
+const DATASET_STEPS = ["hf", "llm"];
 export function Modal({
   title,
   description,
   children,
   close,
+  wide = false,
 }: {
   title: string;
   description?: string;
   children: React.ReactNode;
   close: () => void;
+  /** For code and tables that need the width of the screen. */
+  wide?: boolean;
 }) {
   return (
     <Dialog open onOpenChange={(open) => !open && close()}>
-      <DialogContent className="workbench-dialog">
+      <DialogContent className={"workbench-dialog" + (wide ? " wide" : "")}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
@@ -62,6 +72,9 @@ type Props = {
   selectedFolder: Ref;
   setFolder: (f: Ref) => void;
   upload: (file: File) => Promise<Ref>;
+  createExample: () => void;
+  /** Close anything showing a file that was just deleted. */
+  deleted: (f: Ref) => void;
 };
 export function Explorer({
   roots,
@@ -73,7 +86,10 @@ export function Explorer({
   selectedFolder,
   setFolder,
   upload,
+  createExample,
+  deleted,
 }: Props) {
+  const [picking, setPicking] = useState(false);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [action, setAction] = useState<{ type: string; file?: Entry } | null>(
@@ -85,8 +101,7 @@ export function Explorer({
   const execute = async () => {
     setBusy(true);
     try {
-      if (action?.type === "attach") await api("/roots", { path: name });
-      else if (action?.type === "mkdir")
+      if (action?.type === "mkdir")
         await api("/folders", {
           ...selectedFolder,
           path: [selectedFolder.path, name].filter(Boolean).join("/"),
@@ -196,37 +211,27 @@ export function Explorer({
           </div>
         );
       });
+  const fileCount = entries.filter((e) => e.kind === "file").length;
+  const target = roots.find((r) => r.id === selectedFolder.root);
   return (
-    <aside className="explorer">
+    <section className="explorer" aria-label="Files">
       <div className="explorer-heading">
-        <span>EXPLORER</span>
-        <div>
-          <button title="Add Folder" onClick={() => begin("attach")}>
-            <FolderPlus size={15} />
-          </button>
-          <button
-            title="Refresh explorer"
-            onClick={() => refresh().catch(report)}
-          >
-            <RefreshCw size={14} />
-          </button>
-        </div>
-      </div>
-      <div className="explorer-search">
-        <Search size={14} />
-        <input
-          aria-label="Search filenames"
-          placeholder="Find a file…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <span className="sidebar-title">Files</span>
+        <button
+          className="icon-button"
+          title="Refresh files"
+          aria-label="Refresh files"
+          onClick={() => refresh().catch(report)}
+        >
+          <RefreshCw size={14} />
+        </button>
       </div>
       <div className="explorer-actions">
-        <Button variant="outline" size="sm" onClick={() => begin("attach")}>
-          <FolderOpen size={14} /> Open folder
-        </Button>
-        <label className="icon-upload" title="Upload into selected folder">
-          <Upload size={15} />
+        <label
+          className="icon-upload upload-button"
+          title="Upload a CSV, JSON, or text file into the selected folder"
+        >
+          <Upload size={14} /> Upload
           <input
             type="file"
             accept=".csv,.json,.txt,.md"
@@ -240,31 +245,51 @@ export function Explorer({
             }}
           />
         </label>
-        <button title="Create folder" onClick={() => begin("mkdir")}>
+        <Button variant="outline" size="sm" onClick={() => setPicking(true)}>
+          <FolderOpen size={14} /> Open folder
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          title="New folder"
+          aria-label="New folder"
+          onClick={() => begin("mkdir")}
+        >
           <FolderPlus size={15} />
-        </button>
+        </Button>
       </div>
+      {fileCount > 8 && (
+        <div className="explorer-search">
+          <Search size={14} />
+          <input
+            aria-label="Search filenames"
+            placeholder="Find a file…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      )}
       <div className="tree" aria-label="Workspace files">
         {roots.map((root) => (
           <div key={root.id}>
-            <button
-              className={
-                "root-row " +
-                (selectedFolder.root === root.id && !selectedFolder.path
-                  ? "active-root"
-                  : "")
-              }
-              title={root.path}
-              onClick={() => setFolder({ root: root.id, path: "" })}
-            >
-              <ChevronDown size={13} />
-              <FolderOpen size={15} />
-              <strong>{root.name}</strong>
-            </button>
-            <div className="root-detach">
+            <div className="root-line">
+              <button
+                className={
+                  "root-row " +
+                  (selectedFolder.root === root.id && !selectedFolder.path
+                    ? "active-root"
+                    : "")
+                }
+                title={root.path}
+                onClick={() => setFolder({ root: root.id, path: "" })}
+              >
+                <FolderOpen size={15} />
+                <strong>{root.name}</strong>
+              </button>
               {root.id !== roots[0]?.id && (
                 <button
-                  title={"Detach " + root.name}
+                  className="root-detach"
+                  title={"Close " + root.name + " (files are not deleted)"}
                   onClick={async () => {
                     try {
                       await api("/roots/detach", { root: root.id });
@@ -283,48 +308,92 @@ export function Explorer({
             {tree(root.id)}
             {!entries.some((e) => e.root === root.id) && (
               <div className="empty-tree">
-                Your files live here.
-                <br />
-                Upload a dataset or open a research folder.
+                <p>No files yet.</p>
+                <p>
+                  Upload a CSV or JSON file, or run <strong>Collect</strong> to
+                  download articles.
+                </p>
+                {root.id === roots[0]?.id && (
+                  <button className="link-button" onClick={createExample}>
+                    <FlaskConical size={13} /> Create practice data
+                  </button>
+                )}
               </div>
             )}
           </div>
         ))}
       </div>
-      <div className="explorer-footer">
-        <span className="status-dot" /> Local files ·{" "}
-        {entries.filter((e) => e.kind === "file").length} files
-        <p title={selectedFolder.path}>
-          Upload to: {selectedFolder.path || "workspace root"}
-        </p>
+      <div className="explorer-footer" title={target?.path}>
+        Uploads go to{" "}
+        <strong>
+          {target?.name}
+          {selectedFolder.path ? "/" + selectedFolder.path : ""}
+        </strong>
       </div>
-      {action && action.type !== "menu" && (
+      {picking && (
+        <FolderPicker
+          title="Open a folder"
+          description="Show a folder from this computer in Files. Nothing is moved or copied, and it stays listed after restarting."
+          confirm="Open"
+          close={() => setPicking(false)}
+          onPick={async (path) => {
+            const root = await api<Root>("/roots", { path });
+            setPicking(false);
+            setFolder({ root: root.id, path: "" });
+            await refresh();
+          }}
+        />
+      )}
+      {action?.type === "delete" && (
         <Modal
-          title={
-            action.type === "attach"
-              ? "Open / Add Folder"
-              : action.type === "mkdir"
-                ? "Create a folder"
-                : "Rename file or folder"
+          title={`Delete ${action.file!.name}?`}
+          description={
+            action.file!.kind === "folder"
+              ? "Deletes this empty folder from your computer."
+              : "Deletes this file from your computer. It does not go to the Trash, so this cannot be undone."
           }
           close={() => setAction(null)}
-          description={
-            action.type === "attach"
-              ? "Attach an existing research directory. It stays available after restarting the workbench."
-              : undefined
-          }
         >
-          <Field
-            label={action.type === "attach" ? "Absolute folder path" : "Name"}
-          >
+          <div className="row wrap">
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await api("/delete", { file: action.file });
+                  deleted(action.file!);
+                  setAction(null);
+                  await refresh();
+                } catch (e) {
+                  report(e);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <Trash2 size={15} /> Delete
+            </Button>
+            <Button variant="outline" onClick={() => setAction(null)}>
+              Cancel
+            </Button>
+          </div>
+        </Modal>
+      )}
+      {(action?.type === "mkdir" || action?.type === "rename") && (
+        <Modal
+          title={
+            action.type === "mkdir"
+              ? "Create a folder"
+              : "Rename file or folder"
+          }
+          close={() => setAction(null)}
+        >
+          <Field label="Name">
             <input
               autoFocus
               value={name}
-              placeholder={
-                action.type === "attach"
-                  ? "/Users/you/Documents/Research"
-                  : "new-folder"
-              }
+              placeholder="new-folder"
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && execute()}
             />
@@ -348,7 +417,7 @@ export function Explorer({
                 >
                   Open preview
                 </Button>
-                {["hf", "llm", "clean", "review", "aggregate"].map((tool) => (
+                {DATASET_STEPS.map((tool) => (
                   <Button
                     variant="outline"
                     key={tool}
@@ -357,17 +426,7 @@ export function Explorer({
                       setAction(null);
                     }}
                   >
-                    {
-                      (
-                        {
-                          hf: "Use in Hugging Face",
-                          llm: "Use in LLM",
-                          clean: "Clean",
-                          review: "Review",
-                          aggregate: "Aggregate",
-                        } as any
-                      )[tool]
-                    }
+                    Use in {stepOf(tool).title}
                   </Button>
                 ))}
                 <a
@@ -385,10 +444,17 @@ export function Explorer({
             >
               <Pencil size={14} /> Rename
             </Button>
+            <Button
+              variant="outline"
+              className="danger-outline"
+              onClick={() => setAction({ type: "delete", file: action.file })}
+            >
+              <Trash2 size={14} /> Delete…
+            </Button>
           </div>
         </Modal>
       )}
-    </aside>
+    </section>
   );
 }
 export function Preview({
@@ -409,7 +475,7 @@ export function Preview({
   const [data, setData] = useState<any>(null);
   const [offset, setOffset] = useState(0);
   const [text, setText] = useState("");
-  const [record, setRecord] = useState<any>(null);
+  const [record, setRecord] = useState<number | null>(null);
   const [saveAs, setSaveAs] = useState(false);
   const [newName, setNewName] = useState("");
   const [identity, setIdentity] = useState("");
@@ -429,7 +495,7 @@ export function Preview({
     }
   };
   // Effect is below to keep a tab's editor draft while other workspaces are selected.
-  ReactUseEffect(() => {
+  useEffect(() => {
     load();
   }, [file.root, file.path, offset]);
   const save = async (as = false) => {
@@ -491,25 +557,17 @@ export function Preview({
             <span>
               <strong>{data.columns.length}</strong> columns
             </span>
-            <span>Click a row to inspect its complete record.</span>
+            <span>Click a row to see the complete record.</span>
             <div className="spacer" />
-            {["hf", "llm", "clean", "review"].map((t) => (
+            <span className="use-in-label">Use in</span>
+            {DATASET_STEPS.map((t) => (
               <Button
                 variant="outline"
                 size="sm"
                 key={t}
                 onClick={() => useFile(t, file)}
               >
-                {
-                  (
-                    {
-                      hf: "Hugging Face",
-                      llm: "LLM",
-                      clean: "Clean",
-                      review: "Review",
-                    } as any
-                  )[t]
-                }
+                {stepOf(t).title}
               </Button>
             ))}
           </div>
@@ -528,11 +586,11 @@ export function Preview({
                   <tr
                     key={i}
                     tabIndex={0}
-                    onClick={() => setRecord(r)}
+                    onClick={() => setRecord(i)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        setRecord(r);
+                        setRecord(i);
                       }
                     }}
                   >
@@ -602,10 +660,13 @@ export function Preview({
           </div>
         </div>
       )}
-      {record && (
-        <Modal title="Record inspector" close={() => setRecord(null)}>
-          <pre className="record-inspector">{pretty(record)}</pre>
-        </Modal>
+      {record !== null && (
+        <RecordView
+          rows={data.rows}
+          index={record}
+          offset={offset}
+          close={() => setRecord(null)}
+        />
       )}
       {saveAs && (
         <Modal title="Save configuration as" close={() => setSaveAs(false)}>
@@ -654,4 +715,3 @@ export function Preview({
     </div>
   );
 }
-import { useEffect as ReactUseEffect } from "react";

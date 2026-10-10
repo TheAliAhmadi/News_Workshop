@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import string
 import tempfile
 from pathlib import Path
 import pandas as pd
@@ -46,16 +47,21 @@ class Workspace:
         default.mkdir(parents=True, exist_ok=True)
         self.registry = self.state / 'roots.json'
         self.roots = json.loads(self.registry.read_text(encoding='utf-8')) if self.registry.exists() else {}
-        self.attach(str(default))
+        self.attach(str(default), primary=True)
 
-    def attach(self, path):
+    def attach(self, path, primary=False):
+        """Show a folder in Files. The primary folder is listed first and is
+        the default place for uploads and results."""
         p = Path(path).expanduser().resolve()
         if not p.is_dir():
             raise ValueError('Enter an existing absolute directory path.')
         if p == APP or p in APP.parents or any(part.startswith('.') or part in BLOCKED for part in p.relative_to(p.anchor).parts):
             raise ValueError('Choose a research data folder, outside application, dependency, or hidden directories.')
         key = hashlib.sha256(str(p).encode()).hexdigest()[:12]
-        self.roots[key] = str(p)
+        if primary:
+            self.roots = {key: str(p), **{k: v for k, v in self.roots.items() if k != key}}
+        else:
+            self.roots[key] = str(p)
         atomic_write(self.registry, json_text(self.roots))
         return {'id': key, 'name': p.name, 'path': str(p)}
 
@@ -128,7 +134,8 @@ def save_dataset(df, target, overwrite=False, expected_hash=None):
     content = csv_text(df) if target.suffix.lower() == '.csv' else json_text(records(df))
     if overwrite:
         if target.exists() and digest(target) != expected_hash:
-            raise ValueError('Output changed since submission. Choose a new destination before resuming.')
+            raise ValueError('The output file was changed by something else while this job ran, so it was not replaced. '
+                             'Your results are kept: use Resume to a different file to save them.')
         atomic_write(target, content)
     else:
         # O_EXCL prevents a concurrent job or explorer upload from being overwritten.
@@ -150,3 +157,41 @@ def save_dataset(df, target, overwrite=False, expected_hash=None):
                     os.fsync(handle.fileno())
         finally:
             Path(temporary).unlink(missing_ok=True)
+
+
+def browse(path=None):
+    """Folders inside `path` (default: the home folder), for picking a folder
+    by clicking instead of typing a path. Hidden folders are left out."""
+    home = Path.home()
+    folder = Path(path).expanduser().resolve() if path else home
+    if not folder.is_dir():
+        raise ValueError('That folder no longer exists. Choose another one.')
+    try:
+        children = sorted(folder.iterdir(), key=lambda c: c.name.lower())
+    except PermissionError:
+        raise ValueError('This computer does not allow opening that folder. Choose another one.')
+    folders = []
+    for child in children:
+        try:
+            if not child.name.startswith('.') and child.is_dir():
+                folders.append({'name': child.name, 'path': str(child)})
+        except OSError:
+            continue  # Unreadable entries are skipped rather than failing the listing.
+    shortcuts = [{'name': 'Home', 'path': str(home)}]
+    shortcuts += [{'name': n, 'path': str(home / n)} for n in ('Desktop', 'Documents', 'Downloads') if (home / n).is_dir()]
+    if os.name == 'nt':
+        shortcuts += [{'name': f'{d}: drive', 'path': f'{d}:\\'} for d in string.ascii_uppercase if os.path.exists(f'{d}:\\')]
+    return {'path': str(folder), 'name': folder.name or str(folder),
+            'parent': str(folder.parent) if folder.parent != folder else None,
+            'folders': folders, 'shortcuts': shortcuts}
+
+
+def create_folder(parent, name):
+    name = (name or '').strip()
+    if not name or Path(name).name != name or name.startswith('.'):
+        raise ValueError('Enter a folder name without slashes, not starting with a dot.')
+    target = Path(parent).expanduser().resolve() / name
+    if target.exists():
+        raise ValueError('A folder with that name already exists here.')
+    target.mkdir()
+    return browse(target)

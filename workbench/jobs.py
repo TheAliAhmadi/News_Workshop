@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import shutil
 import multiprocessing as mp
 import threading
 import time
@@ -35,7 +37,7 @@ class Context:
 
 
 def run_job(folder, keys):
-    from .processors import hf_process, llm_process, news_process, clean_process, aggregate_process
+    from .processors import hf_process, llm_process, news_process, clean_process
     ctx = Context(folder, keys)
     request = json.loads((Path(folder) / 'request.json').read_text(encoding='utf-8'))
     ctx.update(state='running', started_at=time.time(), error='')
@@ -47,7 +49,8 @@ def run_job(folder, keys):
             result = news_process(ctx, request['config'])
         else:
             df = read_dataset(Path(folder) / request['snapshot'])
-            processor = {'hf': hf_process, 'llm': llm_process, 'clean': clean_process, 'aggregate': aggregate_process}[request['tool']]
+            # `clean` has no screen; tests use it as a fast job that needs no network.
+            processor = {'hf': hf_process, 'llm': llm_process, 'clean': clean_process}[request['tool']]
             result = processor(ctx, df, request['config'])
         ctx.checkpoint(records(result))
         # Re-resolve the output root after processing to detect changed symlinks.
@@ -85,6 +88,18 @@ class JobManager:
 
     def list(self):
         return sorted([json.loads(p.read_text(encoding='utf-8')) for p in self.base.glob('*/status.json')], key=lambda x: x['created_at'], reverse=True)
+
+    def clear(self):
+        """Forget finished jobs: their records, input copies, and checkpoints.
+        Result files saved in research folders are not touched."""
+        with self.lock:
+            removed = 0
+            for status in self.base.glob('*/status.json'):
+                if json.loads(status.read_text(encoding='utf-8'))['state'] in ('queued', 'running'):
+                    continue
+                shutil.rmtree(status.parent, ignore_errors=True)
+                removed += 1
+            return {'removed': removed, 'jobs': self.list()}
 
     def folder(self, job_id):
         if not job_id.isalnum() or not (self.base / job_id / 'status.json').exists():
@@ -163,6 +178,7 @@ class JobManager:
                 raise ValueError('Another active job is using this output destination.')
             atomic_write(folder / 'request.json', json_text(req))
             (folder / 'cancel').unlink(missing_ok=True)
+            (folder / 'claimed').unlink(missing_ok=True)
             ctx.update(state='queued', phase='Queued to resume; successful rows retained', error='')
             return ctx.status
 
@@ -185,12 +201,23 @@ class JobManager:
                 if ctx.status['state'] == 'running':
                     ctx.update(state='interrupted', phase='Worker stopped unexpectedly; resume from checkpoint.')
                 self.process, self.active_id = None, None
-            queued = [j for j in reversed(self.list()) if j['state'] == 'queued']
-            if queued:
-                job = queued[0]
-                self.active_id = job['id']
-                self.process = mp.get_context('spawn').Process(target=run_job, args=(str(self.folder(job['id'])), dict(self.keys)), daemon=True)
-                self.process.start()
+            for job in reversed(self.list()):
+                if job['state'] == 'queued' and self._claim(job['id']):
+                    break
+            else:
+                return
+            self.active_id = job['id']
+            self.process = mp.get_context('spawn').Process(target=run_job, args=(str(self.folder(job['id'])), dict(self.keys)), daemon=True)
+            self.process.start()
+
+    def _claim(self, job_id):
+        """Take a queued job exactly once, even if another backend shares
+        this folder: creating the claim file fails if it already exists."""
+        try:
+            os.close(os.open(self.folder(job_id) / 'claimed', os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return True
+        except FileExistsError:
+            return False
 
     def close(self):
         self.stop_event.set()

@@ -39,7 +39,7 @@ Browser test reruns intentionally create new temporary roots. Keep a separate st
 
 ## Desktop packaging update — September 7, 2026
 
-Release packaging for classroom installers is in place per `PLAN_release.md`:
+Release packaging for classroom installers is in place per [`PLAN_release.md`](history/PLAN_release.md):
 
 - Tkinter launcher, PyInstaller one-folder builds, macOS DMG and Windows Inno Setup scripts under `packaging/`
 - Per-user application data, keyring-backed **Remember on this computer**, first-run guide, backend-managed preferences and designer sessions

@@ -82,7 +82,7 @@ The failed initial `v1.0.0` tag points at the original packaging commit. Do not 
 ## Before signed class publication
 
 1. Download the draft assets and verify checksums in `SHA256SUMS.txt`.
-2. On a clean Mac: open the DMG under quarantine, confirm Gatekeeper accepts the notarized app, install, and walk the [student acceptance checklist](../PLAN_release.md#5-acceptance-and-rollout).
+2. On a clean Mac: open the DMG under quarantine, confirm Gatekeeper accepts the notarized app, install, and walk the [student acceptance checklist](history/PLAN_release.md#5-acceptance-and-rollout).
 3. On a clean Windows 11 PC: run Setup.exe, confirm Authenticode status, install without admin if possible, and walk the same checklist.
 4. Confirm uninstall leaves research data and model cache intact.
 5. Publish the verified draft release, then point the README download links at that release.

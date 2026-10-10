@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { api } from "./api";
 
 // Settings used to live in browser storage, which is scoped to the address of
@@ -63,8 +64,67 @@ export async function loadPreferences(): Promise<Record<string, any>> {
   return stored.tools || {};
 }
 
-export async function savePreferences(tools: Record<string, unknown>) {
-  await api("/preferences", { tools });
+export async function savePreferences(
+  tools: Record<string, unknown>,
+  keepalive = false,
+) {
+  await api("/preferences", { tools }, undefined, keepalive);
+}
+
+/**
+ * Save `value` whenever it changes.
+ *
+ * Changes are debounced so typing does not write on every keystroke. When
+ * `urgentKey` is given and its result changes (for example a new chat reply),
+ * the value is saved at once. Anything still unsaved is flushed when the page
+ * is closed or reloaded, or the component unmounts, so a quick reload never
+ * loses the last change.
+ */
+export function useAutosave<T>(
+  value: T,
+  save: (value: T, keepalive: boolean) => Promise<unknown>,
+  {
+    enabled,
+    onError,
+    urgentKey,
+    delay = 600,
+  }: {
+    enabled: boolean;
+    onError: (e: unknown) => void;
+    urgentKey?: (value: T) => string;
+    delay?: number;
+  },
+) {
+  const saved = useRef<string | null>(null);
+  const savedUrgent = useRef<string | undefined>(undefined);
+  const latest = useRef({ value, save, onError, urgentKey });
+  latest.current = { value, save, onError, urgentKey };
+  const flush = (keepalive: boolean) => {
+    const { value, save, onError, urgentKey } = latest.current;
+    const body = JSON.stringify(value);
+    if (body === saved.current) return;
+    saved.current = body;
+    savedUrgent.current = urgentKey?.(value);
+    save(value, keepalive).catch(keepalive ? () => {} : onError);
+  };
+  useEffect(() => {
+    if (!enabled) return;
+    if (urgentKey && urgentKey(value) !== savedUrgent.current) {
+      flush(false);
+      return;
+    }
+    const timer = setTimeout(() => flush(false), delay);
+    return () => clearTimeout(timer);
+  }, [value, enabled]);
+  useEffect(() => {
+    if (!enabled) return;
+    const onHide = () => flush(true);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      flush(false);
+    };
+  }, [enabled]);
 }
 
 export const designerSessionPath = (workspace: string) =>

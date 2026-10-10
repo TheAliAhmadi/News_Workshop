@@ -14,14 +14,14 @@ from .version import APP_NAME
 
 SERVICE = APP_NAME
 ENVIRONMENT = {'news': 'NEWS_API_KEY', 'openai': 'OPENAI_API_KEY'}
-UNAVAILABLE = ('Secure storage is unavailable on this computer. Keys are kept for '
-               'this session only and must be entered again after a restart.')
+SESSION_ONLY = 'Keys are kept for this session only and must be entered again after a restart.'
+UNAVAILABLE = 'Secure storage is unavailable on this computer. ' + SESSION_ONLY
 
 
 def _backend():
     """Return an available keyring backend, or a reason it cannot be used."""
     if os.environ.get('WORKBENCH_SECURE_STORAGE', '').strip().lower() in ('0', 'false', 'no'):
-        return None, 'Secure storage is turned off for this run. ' + UNAVAILABLE
+        return None, 'Secure storage is turned off for this run. ' + SESSION_ONLY
     try:
         import keyring
     except Exception:
@@ -108,10 +108,54 @@ class CredentialStore:
                 pass  # Absent entries and locked stores are both fine to ignore here.
         self.saved[name] = False
 
+    def hint(self, name):
+        """The last four characters, so a student can tell which key is stored."""
+        value = self.keys.get(name, '')
+        return '…' + value[-4:] if len(value) >= 12 else ('set' if value else '')
+
     def status(self):
-        """Flags only. Key values are never returned to the interface."""
+        """Flags and short hints only. Key values are never returned to the interface."""
         return {
             'connections': {name: bool(value) for name, value in self.keys.items()},
             'remembered': dict(self.saved),
+            'hints': {name: self.hint(name) for name in self.names},
             'secure_storage': {'available': self.available, 'detail': self.detail},
         }
+
+
+def check_key(name, value):
+    """Ask the provider whether a key works, without using paid capacity.
+
+    Returns {'state': 'ok' | 'rejected' | 'unchecked', 'message': ...}. A key
+    that cannot be checked (offline, provider down) is not treated as wrong.
+    """
+    if name == 'openai':
+        from openai import OpenAI
+        try:
+            OpenAI(api_key=value, timeout=15, max_retries=0).models.list()
+            return {'state': 'ok', 'message': 'OpenAI accepted this key.'}
+        except Exception as exc:
+            status = getattr(exc, 'status_code', None)
+            if status == 401:
+                return {'state': 'rejected', 'message': 'OpenAI rejected this key. Copy it again from platform.openai.com/api-keys; it starts with "sk-".'}
+            if status == 403:
+                return {'state': 'ok', 'message': 'OpenAI accepted this key. It cannot list models, so type the model ID yourself.'}
+            if status == 429:
+                return {'state': 'ok', 'message': 'OpenAI accepted this key, but it is out of credit or rate-limited. Check billing at platform.openai.com.'}
+            return {'state': 'unchecked', 'message': 'Could not reach OpenAI to check the key. It is saved; it will be checked when you run a step.'}
+    if name == 'news':
+        import requests
+        try:
+            response = requests.get('https://newsapi.org/v2/top-headlines/sources', headers={'X-Api-Key': value}, timeout=15)
+            payload = response.json()
+        except Exception:
+            return {'state': 'unchecked', 'message': 'Could not reach NewsAPI to check the key. It is saved; it will be checked when you collect news.'}
+        code = payload.get('code', '')
+        if payload.get('status') == 'ok':
+            return {'state': 'ok', 'message': 'NewsAPI accepted this key.'}
+        if code in ('apiKeyInvalid', 'apiKeyMissing', 'apiKeyDisabled'):
+            return {'state': 'rejected', 'message': 'NewsAPI rejected this key. Copy it again from newsapi.org/account.'}
+        if code in ('apiKeyExhausted', 'rateLimited'):
+            return {'state': 'ok', 'message': 'NewsAPI accepted this key, but its request limit is used up for now (100 per day on the free plan).'}
+        return {'state': 'unchecked', 'message': f'NewsAPI could not check the key right now ({code or response.status_code}). It is saved.'}
+    raise ValueError('Unknown connection.')

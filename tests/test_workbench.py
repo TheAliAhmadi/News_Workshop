@@ -9,7 +9,7 @@ from workbench.api import create_app
 from workbench.files import read_dataset, save_dataset, digest
 from workbench.configuration import news_query, domains, text_input, validate_schema, validate_config, templates
 from workbench.jobs import Context, JobManager, run_job
-from workbench.processors import hf_process, llm_process, news_process, aggregate_process
+from workbench.processors import hf_process, llm_process, news_process
 
 @pytest.fixture
 def client(tmp_path):
@@ -29,7 +29,7 @@ def dest(c,name='result.json'):
     return {'root':c.root,'path':'','filename':name,'format':Path(name).suffix[1:]}
 
 def context(tmp_path,keys=None):
-    folder=tmp_path/'job';folder.mkdir()
+    folder=tmp_path/'job';folder.mkdir(parents=True)
     (folder/'status.json').write_text(json.dumps({'state':'running','completed':0}),encoding='utf-8')
     return Context(folder,keys or {})
 
@@ -185,20 +185,74 @@ def test_news_partial_pages_retained_and_domains_only(tmp_path,monkeypatch):
         return SimpleNamespace(status_code=200,json=lambda:{'status':'ok','totalResults':101,'articles':[{'title':str(i)} for i in range(100)]})
     monkeypatch.setattr('workbench.processors.requests.get',get)
     ctx=context(tmp_path,{'news':'fake'})
-    with pytest.raises(ValueError,match='rateLimited'):news_process(ctx,{'company':'Acme','combined_query':'"Acme" AND (anything)','domains':['reuters.com'],'max_results':101})
+    with pytest.raises(ValueError,match='limiting requests'):news_process(ctx,{'company':'Acme','combined_query':'"Acme" AND (anything)','domains':['reuters.com'],'max_results':101})
     assert len(ctx.rows)==100 and ctx.status['next_page']==2
     assert calls[0]['params']['domains']=='reuters.com' and 'sources' not in calls[0]['params']
 
-def test_human_validation_and_aggregation_without_pipeline(client,tmp_path):
-    data=[{'company':'Acme','date':'2026-09-01','relevant':True,'dimension':'social','relationship':'firm_action','theme':'labor'}]
-    ref=upload(client,'coded.json',json.dumps(data))
-    sample=client.post('/api/review/sample',json={'input':ref,'fields':['dimension'],'count':5}).json()
-    r=client.post('/api/review/save',json={'input':ref,'hash':sample['hash'],'fields':['dimension'],'labels':[{'index':0,'values':{'dimension':'social'}}],'destination':dest(client,'human.json')})
-    assert r.status_code==200,r.text
-    assert r.json()['metrics']['dimension']['agreement']==1
-    mapped={'firm':'company','date':'date','relevance':'relevant','dimension':'dimension','relationship':'relationship','theme':'theme'}
-    result=aggregate_process(context(tmp_path),pd.DataFrame(data),{'mapping':mapped})
-    assert result.iloc[0]['soc_share']==1 and result.iloc[0]['observed_mentions']==1
+def test_news_plan_limit_finishes_with_retrieved_articles(tmp_path,monkeypatch):
+    calls=[]
+    def get(url,**kw):
+        calls.append(kw)
+        if len(calls)==2:return SimpleNamespace(status_code=426,json=lambda:{'status':'error','code':'maximumResultsReached','message':'Developer accounts are limited to 100 results.'})
+        return SimpleNamespace(status_code=200,json=lambda:{'status':'ok','totalResults':500,'articles':[{'title':str(i)} for i in range(100)]})
+    monkeypatch.setattr('workbench.processors.requests.get',get)
+    ctx=context(tmp_path,{'news':'fake'})
+    result=news_process(ctx,{'company':'Acme','combined_query':'"Acme" AND (x)','max_results':500})
+    assert len(result)==100 and ctx.status['plan_limit_reached'] and ctx.status['total']==100
+
+def test_news_errors_explain_what_to_do(tmp_path,monkeypatch):
+    monkeypatch.setattr('workbench.processors.requests.get',lambda url,**kw:SimpleNamespace(status_code=401,json=lambda:{'status':'error','code':'apiKeyInvalid','message':'Your API key is invalid or incorrect.'}))
+    with pytest.raises(ValueError,match='Check your NewsAPI key under Connections. NewsAPI says: Your API key is invalid'):
+        news_process(context(tmp_path/'a',{'news':'fake'}),{'company':'Acme','combined_query':'"Acme" AND (x)'})
+    monkeypatch.setattr('workbench.processors.requests.get',lambda url,**kw:SimpleNamespace(status_code=426,json=lambda:{'status':'error','code':'maximumResultsReached'}))
+    with pytest.raises(ValueError,match='at most 100 articles'):
+        news_process(context(tmp_path/'b',{'news':'fake'}),{'company':'Acme','combined_query':'"Acme" AND (x)'})
+
+def test_provider_errors_are_plain_and_never_echo_details():
+    from workbench.processors import safe_error
+    assert 'no longer exists' in safe_error(FileNotFoundError(2, 'No such file', '/Users/x/secret.csv'))
+    class APIError(Exception):
+        def __init__(self,status):super().__init__('Bearer sk-secret leaked');self.status_code=status
+    assert safe_error(APIError(401)).startswith('The API key was rejected')
+    assert 'Rate limit' in safe_error(APIError(429)) and 'temporarily unavailable' in safe_error(APIError(503))
+    class APIConnectionError(Exception):pass
+    assert 'internet connection' in safe_error(APIConnectionError('sk-secret'))
+    assert all('sk-secret' not in safe_error(e) for e in (APIError(400),APIError(401),APIConnectionError('sk-secret')))
+
+def test_browse_folders_by_clicking(client,tmp_path,monkeypatch):
+    monkeypatch.setattr(Path,'home',classmethod(lambda cls:tmp_path))
+    (tmp_path/'Documents'/'Research').mkdir(parents=True);(tmp_path/'.hidden').mkdir();(tmp_path/'notes.txt').write_text('x')
+    home=client.post('/api/browse',json={}).json()
+    assert home['path']==str(tmp_path.resolve()) and [f['name'] for f in home['folders']]==['Documents','research','state']
+    assert {'name':'Documents','path':str(tmp_path/'Documents')} in home['shortcuts']
+    docs=client.post('/api/browse',json={'path':str(tmp_path/'Documents')}).json()
+    assert docs['parent']==str(tmp_path.resolve()) and docs['folders'][0]['name']=='Research'
+    made=client.post('/api/browse/folder',json={'path':str(tmp_path/'Documents'),'name':'Class 2026'}).json()
+    assert made['path'].endswith('Class 2026') and (tmp_path/'Documents'/'Class 2026').is_dir()
+    assert client.post('/api/browse/folder',json={'path':str(tmp_path),'name':'../escape'}).status_code==400
+    assert client.post('/api/browse',json={'path':str(tmp_path/'missing')}).status_code==400
+    # Browsing needs the session token, like any change.
+    assert client.post('/api/browse',json={},headers={'x-workbench-token':'bad'}).status_code==403
+
+def test_chosen_research_folder_becomes_primary_now(client,tmp_path):
+    chosen=tmp_path/'chosen'
+    r=client.post('/api/research-folder',json={'path':str(chosen),'create':True}).json()
+    assert r['roots'][0]['path']==str(chosen.resolve()) and r['locations']['research']==str(chosen.resolve())
+    assert client.get('/api/roots').json()[0]['path']==str(chosen.resolve())
+
+def test_delete_files_and_clear_job_history(client):
+    ref=upload(client)
+    assert client.post('/api/delete',json={'file':ref}).json()=={'ok':True}
+    assert not client.workspace.resolve(ref).exists()
+    client.post('/api/folders',json={'root':client.root,'path':'empty'})
+    assert client.post('/api/delete',json={'file':{'root':client.root,'path':'empty'}}).status_code==200
+    assert client.post('/api/delete',json={'file':{'root':client.root,'path':''}}).status_code==400
+    ref=upload(client)
+    done=client.post('/api/jobs',json={'tool':'clean','input':ref,'config':{},'destination':dest(client,'a.csv')}).json()
+    queued=client.post('/api/jobs',json={'tool':'clean','input':ref,'config':{},'destination':dest(client,'b.csv')}).json()
+    Context(client.manager.folder(done['id']),{}).update(state='completed')
+    cleared=client.post('/api/jobs/clear',json={}).json()
+    assert cleared['removed']==1 and [j['id'] for j in cleared['jobs']]==[queued['id']]
 
 def test_real_spawned_worker_queue(tmp_path):
     app=create_app(tmp_path/'state',tmp_path/'research',start_worker=True)
@@ -259,3 +313,51 @@ def test_llm_cancellation_keeps_completed_rows_for_resume(tmp_path,monkeypatch):
     (ctx.folder/'cancel').unlink()
     result=llm_process(ctx,df,cfg)
     assert result.llm_status.tolist()==['ok','ok'] and len(calls)==2
+
+def test_two_backends_never_run_the_same_job(client):
+    ref=upload(client)
+    job=client.post('/api/jobs',json={'tool':'clean','input':ref,'config':{},'destination':dest(client,'once.csv')}).json()
+    other=JobManager(client.workspace,{},start=False)
+    assert client.manager._claim(job['id']) and not other._claim(job['id'])
+    Context(client.manager.folder(job['id']),{}).update(state='failed')
+    client.manager.resume(job['id'])
+    assert other._claim(job['id'])  # Resuming releases the claim for one new run.
+
+def test_second_start_reopens_the_running_workbench(monkeypatch,capsys):
+    import workbench.__main__ as entry
+    from launcher.instance import SingleInstance
+    opened=[]
+    monkeypatch.setattr(entry.webbrowser,'open',opened.append)
+    monkeypatch.setattr('launcher.service.BackendService.start',lambda self:pytest.fail('a second backend was started'))
+    with SingleInstance() as running:
+        running.publish('http://127.0.0.1:8765')
+        assert entry.main([])==0
+    assert opened==['http://127.0.0.1:8765'] and 'already running' in capsys.readouterr().out
+
+def test_saving_keys_checks_them_first(client,monkeypatch):
+    results={'good-key-123456':'ok','typo-key-123456':'rejected','offline-key-1234':'unchecked'}
+    monkeypatch.setattr('workbench.api.check_key',lambda name,value:{'state':results[value],'message':results[value]})
+    r=client.post('/api/connections',json={'openai':'  good-key-123456\n','news':'typo-key-123456'}).json()
+    assert r['checks']['openai']['state']=='ok' and r['checks']['news']['state']=='rejected'
+    assert r['connections']=={'news':False,'openai':True} and r['hints']['openai']=='…3456'
+    assert 'good-key' not in json.dumps(r)  # Only the last four characters are ever returned.
+    # A rejected replacement never overwrites a working key.
+    r=client.post('/api/connections',json={'openai':'typo-key-123456'}).json()
+    assert r['connections']['openai'] and r['hints']['openai']=='…3456'
+    r=client.post('/api/connections',json={'news':'offline-key-1234'}).json()
+    assert r['checks']['news']['state']=='unchecked' and r['connections']['news']
+    assert client.post('/api/connections/check',json={'name':'openai'}).json()['checks']['openai']['state']=='ok'
+
+def test_key_checks_read_provider_answers(monkeypatch):
+    from workbench.credentials import check_key
+    answers={'ok':{'status':'ok','sources':[]},'bad':{'status':'error','code':'apiKeyInvalid'},'used':{'status':'error','code':'apiKeyExhausted'}}
+    monkeypatch.setattr('requests.get',lambda url,headers,timeout:SimpleNamespace(status_code=200,json=lambda:answers[headers['X-Api-Key']]))
+    assert [check_key('news',k)['state'] for k in ('ok','bad','used')]==['ok','rejected','ok']
+    import openai
+    class Rejecting:
+        def __init__(self,**kw):
+            error=Exception('Incorrect API key provided: sk-abc');error.status_code=401
+            self.models=SimpleNamespace(list=lambda:(_ for _ in ()).throw(error))
+    monkeypatch.setattr(openai,'OpenAI',Rejecting)
+    result=check_key('openai','sk-abc')
+    assert result['state']=='rejected' and 'sk-abc' not in result['message']

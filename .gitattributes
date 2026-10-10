@@ -1,0 +1,8 @@
+# Student launch scripts must keep their native line endings on every checkout.
+*.sh       text eol=lf
+*.command  text eol=lf
+*.ps1      text eol=crlf
+*.bat      text eol=crlf
+
+# Prebuilt interface: committed so students need no Node.js; not for review.
+frontend/out/** linguist-generated=true -diff

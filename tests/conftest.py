@@ -20,6 +20,8 @@ def isolated_environment(tmp_path_factory, monkeypatch):
     monkeypatch.setenv('WORKBENCH_MODEL_CACHE', str(base / 'models'))
     for name in ('NEWS_API_KEY', 'OPENAI_API_KEY', 'OPENAI_MODEL'):
         monkeypatch.delenv(name, raising=False)
+    # Saving a key normally asks the provider whether it works; never from tests.
+    monkeypatch.setattr('workbench.api.check_key', lambda name, value: {'state': 'unchecked', 'message': 'not checked in tests'})
     yield base
 
 

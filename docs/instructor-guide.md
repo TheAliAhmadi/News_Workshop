@@ -2,11 +2,11 @@
 
 ## Files first
 
-Open the launcher and attach a research directory with **Open folder**. Select a folder in the tree before uploading or creating a subfolder. Choose a file to open its preview tab; the explorer remains visible as you switch tools. Additional roots can be detached without deleting their files. The default research workspace stays attached.
+The sidebar shows the three workflow steps (Collect news, Classify, Extract) above the **Files** list. Attach a research directory with **Open folder**, which browses folders by clicking. Select a folder in the tree before uploading or creating a subfolder. Choose a file to open its preview tab; the file list remains visible as you switch steps. Additional roots can be detached without deleting their files. The default research workspace stays attached.
 
 CSV input is read as text to preserve identifiers and leading zeros. JSON datasets are arrays of objects; NewsAPI objects with an `articles` array also work. Configuration JSON is an object. File previews show pages of records; press Enter or Space on a record to inspect it. TXT, Markdown, and configuration JSON can be edited with Save or copied to a chosen folder with Save As. Invalid JSON drafts remain editable.
 
-Use a file's actions to populate Hugging Face, LLM, Clean, Human validation, or Aggregate. Alternatively choose an input in that tool, or upload one. Each tool retains its own settings across tabs and browser refreshes. The sidebar and job-panel dividers can be dragged or focused and adjusted with arrow keys.
+Use a file's **Use in** actions to send it to Classify or Extract, or use the **Classify these / Extract from these** button on a finished job. Alternatively choose an input in that step, or upload one. Each step retains its own settings across tabs and browser refreshes. The sidebar and job-panel dividers can be dragged or focused and adjusted with arrow keys.
 
 ## Collect news
 
@@ -16,7 +16,7 @@ Select business publishers from the suggestions or search the live directory aft
 
 ## Classify independently
 
-In **Hugging Face / FinBERT**, choose an input file and order the selected text columns. The preview shows the exact joined, normalized, word-limited input. The default order recognizes headline/title, lead/description, and content; arbitrary text columns can be mapped.
+In **Classify**, choose an input file and order the selected text columns. The preview shows the exact joined, normalized, word-limited input. The default order recognizes headline/title, lead/description, and content; arbitrary text columns can be mapped.
 
 Choose a model from search or paste a repository ID, optionally pin a revision, and validate compatibility. Set word limit, batch size, CPU or an available accelerator, output prefix, and destination. Processing first reports model loading/download, then inference counts. Native model labels are retained: a sentiment model returns its sentiment labels, while FinBERT ESG returns its own labels. Word and tokenizer limits are reported separately. Failed rows include an error and remain eligible for retry; successful rows are not classified again on resume.
 
@@ -32,15 +32,9 @@ Choose an OpenAI model from the account list or enter its ID. Access to a listed
 
 Preview the exact input/prompt and validate the schema before processing. Save reusable presets containing instructions, enums, and schema to the selected output folder. Uploaded or workspace configuration files also remain accessible independently in the explorer. Nested values remain objects/arrays in JSON and are JSON-serialized within CSV cells. Original input columns are retained alongside the chosen output prefix.
 
-## Clean, review, and aggregate
+## Teaching with the code view
 
-Clean operates on any independently selected dataset. Choose the columns to normalize, optional lowercasing, empty-row removal, duplicate keys, and destination.
-
-Human validation operates on a coded dataset with selected categorical fields. Sample with a reproducible seed, enter a human value for every requested field, and save a separate long-format label file. The result shows agreement and Cohen's kappa when defined. The input hash prevents saving labels against a file changed after sampling. The five-row ESG exercise only preselects its fields and sample size.
-
-Aggregate maps firm, publication date, relevance, dimension, relationship, and theme columns. A status column is optional; without one, rows are treated as successfully coded. Relevance accepts `true`, `1`, or `yes`. Existing ESG definitions use `environmental`, `social`, `governance`, and `multiple`; relationships use `firm_action`, `accusation_against_firm`, `firm_response`, `external_esg_event_affecting_firm`, and `other`. Themes can be custom categories; `other_theme` is reported separately. Map compatible coded columns; classifier labels alone do not establish event relationships or relevance.
-
-Output counts are observed article–firm mentions grouped by publication month, not unique events. Dimension shares use relevant, successfully coded mentions as the denominator. Unparseable dates are excluded and their count is reported. Coverage columns retain successes, failures, pending/deferred rows, and legacy skipped mentions. Missing required columns prompt mapping guidance.
+Every step has **Show the Python code**. **Run it yourself** is a short, commented script generated from the settings currently on the page (search, columns, model, instructions, schema), so you can change a setting and show how the code changes. It reads keys from a `.env` file and never contains them; students run it from the `News_Workshop` folder with `.venv/bin/python <script>.py` (Windows: `.venv\Scripts\python`). **Inside the workbench** shows the backend functions that actually run, with file and line numbers, to point out what the workbench adds: checkpoints, retries, and validation of every result. The flowchart at the top of each step is a quick way to explain which parts run locally and which call an online service.
 
 ## Keeping work safe
 
@@ -50,11 +44,11 @@ A browser refresh reconnects to the queue. A service restart marks unfinished jo
 
 In the packaged app, keep API keys in **Connections** with **Remember on this computer** (macOS Keychain / Windows Credential Manager). For source-based development, Connections or a local `.env` both work. Keep `.env`, dependencies, application code, and internal state outside student research roots. Tool settings and designer conversations live in per-user application data so they survive port changes and upgrades. First-time models and live provider calls require internet access. Large input files are currently read into memory for validation/preview and processing; preview pages limit rendering, not total parsing memory.
 
-Students should install from [GitHub Releases](https://github.com/TheAliAhmadi/News_Workshop/releases) using the [student guide](student-guide.md). Instructors publishing installers must complete [publisher signing](publisher-signing.md) before pointing a class at a release.
+Students follow the [student guide](student-guide.md): one line in Terminal or PowerShell, or fork the repository and double-click the start script. Their keys and research data stay on their own computers. The packaged installers on [GitHub Releases](https://github.com/TheAliAhmadi/News_Workshop/releases) remain optional; see [publisher signing](publisher-signing.md) before pointing a class at them.
 
 ## Design an extraction task by chatting
 
-In **LLM extraction → Instructions & output design**, select **Design with AI**. No input dataset is required. Fresh configurations begin with the ESG starter; existing saved custom work is preserved.
+In **Extract → Instructions & output design**, select **Design with AI**. No input dataset is required. Fresh configurations begin with the ESG starter; existing saved custom work is preserved.
 
 Choose **New design** to describe any extraction task without inheriting ESG fields, or **Refine current design** to work from the instructions, enums, and schema currently in the editors. For example:
 

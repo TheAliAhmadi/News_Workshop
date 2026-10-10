@@ -54,9 +54,13 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Committed interface matches the sources
+        working-directory: frontend
+        run: npm run check:build
+
       - name: Check formatting
         working-directory: frontend
-        run: npx prettier --check app components lib e2e
+        run: npx prettier --check app components lib e2e scripts
 
       - name: Typecheck
         working-directory: frontend
@@ -74,3 +78,76 @@ jobs:
           name: interface
           path: frontend/out
           retention-days: 5
+
+  browser:
+    # The Playwright suite against a real backend and worker, as students use it.
+    name: Browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned dependencies (CPU-only PyTorch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-tested.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install interface dependencies and Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        working-directory: frontend
+        env:
+          PYTHON: python
+        run: npm run test:e2e:local
+
+  student-start:
+    # Exactly what a student runs: no preinstalled Python, uv, or Node required.
+    name: Student start script (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start and wait for the workbench (macOS)
+        if: runner.os != 'Windows'
+        env:
+          WORKBENCH_SECURE_STORAGE: '0'
+        run: |
+          ./start.sh --no-browser > start.log 2>&1 &
+          for i in $(seq 1 180); do grep -q 'ready at' start.log && break; sleep 3; done
+          cat start.log
+          url=$(grep -o 'http://[^ ]*' start.log | tail -1)
+          curl -fsS "$url/api/health"
+          curl -fsS -o /dev/null "$url/"
+
+      - name: Start and wait for the workbench (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WORKBENCH_SECURE_STORAGE: '0'
+        run: |
+          Start-Process cmd -ArgumentList '/c', 'start.bat --no-browser > start.log 2>&1' -WindowStyle Hidden
+          for ($i = 0; $i -lt 180; $i++) {
+            if ((Test-Path start.log) -and (Select-String -Path start.log -Pattern 'ready at' -Quiet)) { break }
+            Start-Sleep 3
+          }
+          Get-Content start.log
+          $url = ([regex]::Matches((Get-Content start.log -Raw), 'http://\S+') | Select-Object -Last 1).Value
+          Invoke-RestMethod "$url/api/health"
+          Invoke-WebRequest "$url/" -UseBasicParsing | Out-Null

@@ -14,14 +14,53 @@ from .configuration import selected_rows, text_input
 from .files import records
 
 
+# Plain-language explanations for provider HTTP status codes.
+PROVIDER_STATUS = {
+    401: 'The API key was rejected. Check the key under Connections.',
+    403: 'This key does not have access to that model or resource. Check your account, or choose another model.',
+    404: 'The model or resource was not found. Check the model ID.',
+    429: 'Rate limit or quota reached for this key. Wait a minute and retry, or check your plan and billing.',
+}
+
+
 def safe_error(exc):
     # Provider exception strings may include headers, API keys, or request text.
     status = getattr(exc, 'status_code', None)
     if isinstance(exc, (ValueError, KeyError)):
         return str(exc)[:500]
+    if isinstance(exc, FileNotFoundError):
+        return 'That file or folder no longer exists. Refresh the file list and choose another.'
+    if status in PROVIDER_STATUS:
+        return f'{PROVIDER_STATUS[status]} (HTTP {status})'
+    if status and status >= 500:
+        return f'The provider is temporarily unavailable (HTTP {status}). Retry in a few minutes; completed rows are retained.'
     if status:
-        return f'{type(exc).__name__} (HTTP {status}). Check credentials, model access, quota, and supported settings.'
-    return f'{type(exc).__name__}. Check the connection, input, and model compatibility; completed rows are retained.'
+        return f'The provider refused the request (HTTP {status}). Check the model and its supported settings.'
+    name = type(exc).__name__
+    if 'Timeout' in name or 'Connection' in name:
+        return 'Could not reach the service. Check your internet connection and retry; completed rows are retained.'
+    return f'{name}. Check the connection, input, and model compatibility; completed rows are retained.'
+
+
+# NewsAPI error codes (https://newsapi.org/docs/errors) and what a student can do.
+NEWSAPI_ERRORS = {
+    'apiKeyInvalid': 'NewsAPI rejected the key. Check your NewsAPI key under Connections.',
+    'apiKeyMissing': 'No NewsAPI key was sent. Add your key under Connections.',
+    'apiKeyDisabled': 'This NewsAPI key has been disabled. Check your account at newsapi.org.',
+    'apiKeyExhausted': 'This NewsAPI key has used all of its requests for now (the free plan allows 100 per day). Try again later.',
+    'rateLimited': 'NewsAPI is limiting requests from this key. Wait a little and retry.',
+    'parameterInvalid': 'NewsAPI rejected a search setting. On the free plan, only articles from about the last month are available; check the From/To dates and the query.',
+    'parametersMissing': 'The search is missing a required setting. Enter a company and a query.',
+    'sourcesTooMany': 'Too many publishers are selected. Choose 20 or fewer.',
+    'sourceDoesNotExist': 'One of the selected publishers is not available in NewsAPI.',
+}
+
+
+def newsapi_error(code, message):
+    hint = NEWSAPI_ERRORS.get(code, f'NewsAPI error {code}. Check plan coverage, dates, query, and credentials.')
+    # NewsAPI's own message explains plan limits precisely and never echoes the key.
+    detail = f' NewsAPI says: {message[:300]}' if message else ''
+    return f'{hint}{detail} Retrieved pages are retained.'
 
 
 def load_classifier(config):
@@ -202,10 +241,15 @@ def news_process(ctx, config):
         except ValueError:
             raise ValueError('NewsAPI returned an unreadable response. Existing pages have been checkpointed.')
         if response.status_code != 200 or payload.get('status') != 'ok':
-            code = str(payload.get('code', response.status_code))
-            if code not in {'apiKeyDisabled', 'apiKeyExhausted', 'apiKeyInvalid', 'apiKeyMissing', 'parameterInvalid', 'parametersMissing', 'rateLimited', 'maximumResultsReached', 'sourcesTooMany', 'sourceDoesNotExist'}:
-                code = str(response.status_code)
-            raise ValueError(f'NewsAPI error {code}. Check plan coverage, dates, query, and credentials. Retrieved pages are retained.')
+            code = str(payload.get('code') or response.status_code)
+            message = str(payload.get('message') or '')
+            if code == 'maximumResultsReached' and output:
+                # The plan's result cap (100 on the free plan) ends the search normally.
+                ctx.update(plan_limit_reached=True, total=len(output))
+                break
+            if code == 'maximumResultsReached':
+                raise ValueError('Your NewsAPI plan does not allow more results for this search (the free plan returns at most 100 articles).')
+            raise ValueError(newsapi_error(code, message))
         articles = payload.get('articles', [])
         total = min(payload.get('totalResults', 0), config.get('max_results', 100))
         for article in articles:
@@ -236,18 +280,4 @@ def clean_process(ctx, df, c):
     if c.get('duplicate_keys'):
         result = result.drop_duplicates(c['duplicate_keys'], keep='first')
     ctx.checkpoint(records(result), completed=len(df), removed=len(df) - len(result))
-    return result
-
-
-def aggregate_process(ctx, df, c):
-    from pipeline.step6_aggregate import aggregate_firm_month
-    mapping = c['mapping']
-    fields = {'firm': 'focal_firm', 'date': 'published_at', 'relevance': 'esg_relevant', 'dimension': 'esg_dimension', 'relationship': 'event_relationship', 'theme': 'theme_primary'}
-    work = pd.DataFrame({dest: df[mapping[source]] for source, dest in fields.items()})
-    work['article_id'] = [f'row-{i}' for i in range(len(work))]
-    work['llm_status'] = df[mapping['status']] if mapping.get('status') else 'ok'
-    work['esg_relevant'] = work.esg_relevant.map(lambda v: str(v).lower() in {'true', '1', 'yes'})
-    result = aggregate_firm_month(work)
-    ctx.update(phase='Aggregating publication-month mentions', total=len(df), completed=len(df), **result.attrs)
-    ctx.checkpoint(records(result), completed=len(df))
     return result

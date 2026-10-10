@@ -1,16 +1,13 @@
 "use client";
-import { useEffect, useState } from "react";
-import {
-  BrainCircuit,
-  CheckCircle2,
-  FolderOpen,
-  KeyRound,
-  Loader2,
-} from "lucide-react";
+import { useState } from "react";
+import { BrainCircuit, FolderOpen, KeyRound } from "lucide-react";
 import { Button } from "./ui/button";
 import { Modal } from "./explorer";
 import { Check, Field } from "./fields";
-import { api, formatBytes } from "@/lib/api";
+import { FolderPicker } from "./folder-picker";
+import { KeyLinks } from "./key-links";
+import { ModelPreparation } from "./model-preparation";
+import { api } from "@/lib/api";
 
 type Step = "folder" | "keys" | "model" | "done";
 const ORDER: Step[] = ["folder", "keys", "model", "done"];
@@ -31,15 +28,16 @@ export function FirstRunGuide({
   report: (e: unknown) => void;
 }) {
   const [step, setStep] = useState<Step>("folder");
-  const [folder, setFolder] = useState(
+  const folder =
+    bootstrap.locations?.research ||
     bootstrap.settings?.research_folder ||
-      bootstrap.default_research_folder ||
-      "",
-  );
+    bootstrap.default_research_folder ||
+    "";
+  const [picking, setPicking] = useState(false);
   const [keys, setKeys] = useState({ news: "", openai: "" });
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [preparation, setPreparation] = useState<any>(null);
+  const [keyError, setKeyError] = useState("");
   const secure = bootstrap.secure_storage || { available: false, detail: "" };
 
   const advance = () => setStep(ORDER[ORDER.indexOf(step) + 1]);
@@ -53,20 +51,11 @@ export function FirstRunGuide({
     onFinish();
   };
 
-  const chooseFolder = async () => {
-    setBusy(true);
-    try {
-      const result = await api("/research-folder", {
-        path: folder,
-        create: true,
-      });
-      onBootstrapChange({ roots: result.roots });
-      advance();
-    } catch (e) {
-      report(e);
-    } finally {
-      setBusy(false);
-    }
+  const chooseFolder = async (path: string) => {
+    const result = await api("/research-folder", { path });
+    onBootstrapChange({ roots: result.roots, locations: result.locations });
+    setPicking(false);
+    advance();
   };
 
   const saveKeys = async () => {
@@ -75,47 +64,29 @@ export function FirstRunGuide({
     );
     if (!Object.keys(entered).length) return advance();
     setBusy(true);
+    setKeyError("");
     try {
       const status = await api("/connections", { ...entered, remember });
       onBootstrapChange(status);
-      setKeys({ news: "", openai: "" });
-      advance();
+      // A key the provider rejected was not saved; keep it in its box to fix.
+      const rejected = Object.entries(status.checks || {}).filter(
+        ([, check]: [string, any]) => check.state === "rejected",
+      );
+      setKeys((prev) => ({
+        news: rejected.some(([n]) => n === "news") ? prev.news : "",
+        openai: rejected.some(([n]) => n === "openai") ? prev.openai : "",
+      }));
+      if (rejected.length)
+        setKeyError(
+          rejected.map(([, c]: [string, any]) => c.message).join(" "),
+        );
+      else advance();
     } catch (e) {
       report(e);
     } finally {
       setBusy(false);
     }
   };
-
-  // Poll only while a download is actually running.
-  useEffect(() => {
-    if (step !== "model" || !preparation || preparation.state !== "running")
-      return;
-    const timer = setInterval(async () => {
-      try {
-        setPreparation(await api("/models/prepare"));
-      } catch (e) {
-        report(e);
-      }
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [step, preparation, report]);
-
-  const prepare = async () => {
-    try {
-      setPreparation(await api("/models/prepare", {}));
-    } catch (e) {
-      report(e);
-    }
-  };
-
-  const share =
-    preparation?.total > 0
-      ? Math.min(
-          100,
-          Math.round((preparation.downloaded / preparation.total) * 100),
-        )
-      : 0;
 
   return (
     <Modal
@@ -142,37 +113,39 @@ export function FirstRunGuide({
         <>
           <p>
             <FolderOpen size={15} /> Your research files stay on this computer,
-            in a folder you choose. It is kept when you upgrade or remove the
-            application.
+            in a folder you choose. Most students keep the suggested folder.
           </p>
-          <Field
-            label="Research folder"
-            hint="Enter a full path. It is created if it does not exist yet."
-          >
-            <input
-              value={folder}
-              onChange={(e) => setFolder(e.target.value)}
-              spellCheck={false}
-            />
-          </Field>
+          <div className="chosen-folder">
+            <FolderOpen size={18} />
+            <code>{folder}</code>
+          </div>
           <div className="row wrap">
-            <Button onClick={chooseFolder} disabled={busy || !folder.trim()}>
-              Use this folder
-            </Button>
-            <Button variant="outline" onClick={advance}>
-              Keep the default
+            <Button onClick={advance}>Use this folder</Button>
+            <Button variant="outline" onClick={() => setPicking(true)}>
+              Choose a different folder…
             </Button>
           </div>
+          {picking && (
+            <FolderPicker
+              title="Choose your research folder"
+              description="New results are saved here. You can create a new folder inside, for example in Documents."
+              confirm="Use this folder"
+              start={folder}
+              close={() => setPicking(false)}
+              onPick={chooseFolder}
+            />
+          )}
         </>
       )}
 
       {step === "keys" && (
         <>
           <p>
-            <KeyRound size={15} /> NewsAPI and OpenAI need your own accounts and
-            keys. Hugging Face classification runs on this computer and needs no
-            key.
+            <KeyRound size={15} /> Collecting news needs a NewsAPI key, and AI
+            extraction needs an OpenAI key. Use your own accounts.
+            Classification runs on this computer and needs no key.
           </p>
+          <KeyLinks />
           <Field label="NewsAPI key">
             <input
               type="password"
@@ -200,9 +173,14 @@ export function FirstRunGuide({
           ) : (
             <p className="hint">{secure.detail}</p>
           )}
+          {keyError && (
+            <p className="inline-error" role="alert">
+              {keyError}
+            </p>
+          )}
           <div className="row wrap">
             <Button onClick={saveKeys} disabled={busy}>
-              Save and continue
+              {busy ? "Checking your keys…" : "Check and continue"}
             </Button>
             <Button variant="outline" onClick={advance}>
               Skip for now
@@ -215,48 +193,20 @@ export function FirstRunGuide({
         <>
           <p>
             <BrainCircuit size={15} /> The default classifier{" "}
-            <code>{bootstrap.default_classifier}</code> downloads the first time
-            you use it. Preparing it now avoids waiting in class. It is kept on
-            this computer afterwards.
+            <code>{bootstrap.default_classifier}</code> (about 440 MB) downloads
+            the first time you use it. Preparing it now avoids waiting in class.
+            You can also do this later from the Classify step.
           </p>
-          {preparation && (
-            <div className="prepare-progress" role="status">
-              <progress
-                aria-label="Classifier download progress"
-                value={preparation.total ? preparation.downloaded : undefined}
-                max={preparation.total || 1}
-              />
-              <span>
-                {preparation.state === "running" && (
-                  <Loader2 className="spin" size={14} />
-                )}
-                {preparation.state === "completed" && (
-                  <CheckCircle2 size={14} />
-                )}
-                {preparation.phase}
-                {preparation.total
-                  ? ` · ${formatBytes(preparation.downloaded)} of ${formatBytes(preparation.total)} (${share}%)`
-                  : ""}
-              </span>
-              {preparation.error && (
-                <span className="inline-error">{preparation.error}</span>
-              )}
-            </div>
-          )}
-          <div className="row wrap">
-            <Button
-              onClick={prepare}
-              disabled={preparation?.state === "running"}
-            >
-              {preparation?.state === "failed" ||
-              preparation?.state === "cancelled"
-                ? "Try again"
-                : "Prepare FinBERT for class"}
-            </Button>
-            <Button variant="outline" onClick={finish}>
-              {preparation?.state === "completed" ? "Finish" : "Skip for now"}
-            </Button>
-          </div>
+          <ModelPreparation report={report}>
+            {(state) => (
+              <Button
+                variant={state === "completed" ? "default" : "outline"}
+                onClick={finish}
+              >
+                {state === "completed" ? "Finish" : "Skip for now"}
+              </Button>
+            )}
+          </ModelPreparation>
         </>
       )}
     </Modal>

@@ -43,8 +43,13 @@ function NodeEditor({
   if (node.$ref || node.anyOf)
     return (
       <div className="hint">
-        Referenced or union field: <code>{node.$ref || "anyOf"}</code>. Edit its
-        definition in JSON to preserve the exact schema.
+        Uses a ready-made definition (
+        <code>
+          {node.$ref
+            ? node.$ref.replace("#/$defs/", "")
+            : "one of several types"}
+        </code>
+        ). To change it, switch to <strong>JSON Schema</strong> above.
       </div>
     );
   return (
@@ -64,11 +69,13 @@ function NodeEditor({
             "array",
             "object",
           ].map((t) => (
-            <option key={t}>{t}</option>
+            <option key={t} value={t}>
+              {TYPE_LABELS[t]}
+            </option>
           ))}
         </select>
         <Check
-          label="Nullable"
+          label="Can be empty"
           value={nullable}
           set={(v) =>
             set({
@@ -86,14 +93,14 @@ function NodeEditor({
         />
         <input
           aria-label="Field description"
-          placeholder="Description (optional)"
+          placeholder="What should go here? (optional, helps the model)"
           value={node.description || ""}
           onChange={(e) => set({ ...node, description: e.target.value })}
         />
       </div>
       {type === "enum" && (
         <div className="grid2">
-          <Field label="Allowed values (comma separated)">
+          <Field label="Choices (comma separated)">
             <input
               value={node.enum.filter((x: any) => x !== null).join(", ")}
               onChange={(e) =>
@@ -107,7 +114,7 @@ function NodeEditor({
               }
             />
           </Field>
-          <Field label="Copy a named enum">
+          <Field label="Or copy an allowed-value list">
             <select
               value=""
               onChange={(e) =>
@@ -118,7 +125,7 @@ function NodeEditor({
                 })
               }
             >
-              <option value="">Choose named list…</option>
+              <option value="">Choose a list…</option>
               {Object.keys(enums).map((k) => (
                 <option key={k}>{k}</option>
               ))}
@@ -221,6 +228,16 @@ function NodeEditor({
     </div>
   );
 }
+/** Plain-language names for JSON Schema types; the values stay standard. */
+export const TYPE_LABELS: Record<string, string> = {
+  string: "Text",
+  number: "Number (with decimals)",
+  integer: "Whole number",
+  boolean: "Yes / no",
+  enum: "One choice from a list",
+  array: "List of items",
+  object: "Group of fields",
+};
 export function SchemaBuilder({
   text,
   set,

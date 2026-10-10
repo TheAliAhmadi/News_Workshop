@@ -59,20 +59,20 @@ export function Field({
   );
 }
 export function Section({
-  number,
+  id,
   title,
   detail,
   children,
 }: {
-  number?: string;
+  /** Anchor the flowchart scrolls to. */
+  id?: string;
   title: string;
   detail?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="card">
+    <section className="card" id={id}>
       <div className="section-head">
-        {number && <span className="step-number">{number}</span>}
         <div>
           <h2>{title}</h2>
           {detail && <p>{detail}</p>}
@@ -80,6 +80,24 @@ export function Section({
       </div>
       <div className="section-body">{children}</div>
     </section>
+  );
+}
+/** Settings most students never need, folded away until asked for. */
+export function More({
+  label,
+  children,
+  open,
+}: {
+  label: string;
+  children: ReactNode;
+  /** Start unfolded, for help that most people should see once. */
+  open?: boolean;
+}) {
+  return (
+    <details className="more" open={open}>
+      <summary>{label}</summary>
+      <div className="more-body">{children}</div>
+    </details>
   );
 }
 export function Check({
@@ -220,11 +238,14 @@ export function Destination({
   set,
   roots,
   folders,
+  hideFilename = false,
 }: {
   value: any;
   set: (v: any) => void;
   roots: Root[];
   folders: Entry[];
+  /** When the filename is edited elsewhere on the page. */
+  hideFilename?: boolean;
 }) {
   return (
     <div className="destination">
@@ -256,13 +277,15 @@ export function Destination({
               ))}
           </select>
         </Field>
-        <Field label="Filename">
-          <input
-            value={value.filename || ""}
-            onChange={(e) => set({ ...value, filename: e.target.value })}
-            placeholder="my_results.csv"
-          />
-        </Field>
+        {!hideFilename && (
+          <Field label="Filename">
+            <input
+              value={value.filename || ""}
+              onChange={(e) => set({ ...value, filename: e.target.value })}
+              placeholder="my_results.csv"
+            />
+          </Field>
+        )}
         <Field label="Format">
           <select
             value={value.format || "csv"}

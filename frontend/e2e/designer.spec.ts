@@ -1,5 +1,17 @@
 import { test, expect, Page } from "@playwright/test";
+const step = (page: Page, name: string) =>
+  page
+    .getByRole("navigation", { name: "Workflow steps" })
+    .getByRole("button", { name: new RegExp("^\\d\\s*" + name) });
 const active = (page: Page) => page.locator(".tool-container:not([hidden])");
+/** Open a folded "More …" section on the current step if it is closed. */
+const more = async (page: Page, label: string) => {
+  const details = active(page)
+    .locator("details.more")
+    .filter({ has: page.locator("summary", { hasText: label }) });
+  if ((await details.getAttribute("open")) === null)
+    await details.locator("summary").click();
+};
 const design = {
   instructions: "Extract products from the record. Use null for unknown names.",
   enums: { category: ["hardware", "software"] },
@@ -25,7 +37,7 @@ const design = {
 };
 async function openDesigner(page: Page) {
   await page.goto("/");
-  await page.getByRole("tab", { name: "LLM extraction", exact: true }).click();
+  await step(page, "Extract").click();
   await active(page)
     .getByRole("button", { name: "Design with AI", exact: true })
     .click();
@@ -69,7 +81,7 @@ test("independent generation, refinements, manual edits, undo, model override an
     });
   });
   await openDesigner(page);
-  await expect(active(page)).toContainText("ESG evidence checks enabled");
+  await expect(active(page)).toContainText("ESG evidence checks on");
   await expect(active(page).getByLabel("Input dataset")).toHaveValue("");
   await active(page)
     .getByLabel("Model ID", { exact: true })
@@ -86,7 +98,7 @@ test("independent generation, refinements, manual edits, undo, model override an
   await expect(active(page).getByLabel("Custom instructions")).toHaveValue(
     design.instructions,
   );
-  await expect(active(page)).toContainText("Custom · no ESG requirements");
+  await expect(active(page)).toContainText("Custom design");
   expect(bodies[0].current_design).toBeNull();
   expect(bodies[0].mode).toBe("new");
   expect(bodies[0].model).toBe("design-model");
@@ -125,7 +137,7 @@ test("independent generation, refinements, manual edits, undo, model override an
     ),
   ).toEqual(design.schema);
   await page.reload();
-  await page.getByRole("tab", { name: "LLM extraction", exact: true }).click();
+  await step(page, "Extract").click();
   await active(page)
     .getByRole("button", { name: "Design with AI", exact: true })
     .click();
@@ -143,6 +155,7 @@ test("independent generation, refinements, manual edits, undo, model override an
   await expect(active(page).getByLabel("Custom instructions")).toHaveValue(
     "Manual instructions must survive.",
   );
+  await more(page, "Load or save");
   await active(page)
     .getByRole("button", { name: "Save preset", exact: true })
     .click();
@@ -165,14 +178,14 @@ test("independent generation, refinements, manual edits, undo, model override an
   await active(page)
     .getByRole("button", { name: "ESG starter", exact: true })
     .click();
-  await expect(active(page)).toContainText("ESG evidence checks enabled");
+  await expect(active(page)).toContainText("ESG evidence checks on");
   const select = active(page).getByLabel("Open saved preset");
   const value = await select
     .locator("option")
     .filter({ hasText: filename })
     .getAttribute("value");
   await select.selectOption(value!);
-  await expect(active(page)).toContainText("Custom · no ESG requirements");
+  await expect(active(page)).toContainText("Custom design");
   expect(errors).toEqual([]);
 });
 test("clarifications and failures preserve fields; cancelled and stale replies are discarded", async ({
@@ -228,11 +241,11 @@ test("clarifications and failures preserve fields; cancelled and stale replies a
   await page.getByRole("button", { name: "Send refinement" }).click();
   await expect(active(page).getByLabel("Custom instructions")).toBeDisabled();
   await expect.poll(() => requested).toBe(3);
-  await page.getByRole("tab", { name: "News API", exact: true }).click();
+  await step(page, "Collect").click();
   await expect(
-    page.getByRole("heading", { name: "News API", exact: true }),
+    page.getByRole("heading", { name: "Collect news", exact: true }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "LLM extraction", exact: true }).click();
+  await step(page, "Extract").click();
   await page.getByRole("button", { name: "Cancel generation" }).click();
   release!();
   await expect(active(page).getByLabel("Custom instructions")).toBeEnabled();
@@ -349,7 +362,7 @@ test("settings survive the application reopening on a different local port", asy
     },
   });
   await page.goto("/");
-  await page.getByRole("tab", { name: "LLM extraction", exact: true }).click();
+  await step(page, "Extract").click();
   await expect(active(page).getByLabel("Custom instructions")).toHaveValue(
     "Kept across addresses",
   );
@@ -357,7 +370,7 @@ test("settings survive the application reopening on a different local port", asy
   await page.context().clearCookies();
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.getByRole("tab", { name: "LLM extraction", exact: true }).click();
+  await step(page, "Extract").click();
   await expect(active(page).getByLabel("Custom instructions")).toHaveValue(
     "Kept across addresses",
   );

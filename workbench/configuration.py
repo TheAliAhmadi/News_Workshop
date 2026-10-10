@@ -168,10 +168,6 @@ def validate_config(tool, config, df=None):
         for col in c.get('columns', []) + c.get('duplicate_keys', []):
             if col not in df.columns:
                 raise ValueError(f'Map the missing column: {col}')
-    elif tool == 'aggregate':
-        for name in ['firm', 'date', 'relevance', 'dimension', 'relationship', 'theme']:
-            if c.get('mapping', {}).get(name) not in df.columns:
-                raise ValueError(f'Map the {name} column from your selected dataset.')
     else:
         raise ValueError('Unknown processing tool.')
     return c
