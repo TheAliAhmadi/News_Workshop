@@ -22,5 +22,10 @@ echo
 echo "Next time, start it by double-clicking 'Start Workbench.command' in ${DEST}"
 echo "(or run: ${DEST}/start.sh)"
 echo
-# stdin is the downloaded script under `curl | bash`; give the app the terminal.
-exec "${DEST}/start.sh" "$@" </dev/tty
+# stdin is the downloaded script under `curl | bash`, so give the app the
+# terminal. AI assistants run commands without one; the app does not read
+# input, so it starts the same way from an empty stdin.
+if (exec </dev/tty) 2>/dev/null; then
+  exec "${DEST}/start.sh" "$@" </dev/tty
+fi
+exec "${DEST}/start.sh" "$@" </dev/null
