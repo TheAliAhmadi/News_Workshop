@@ -41,6 +41,31 @@ A terminal window shows what the workbench is doing and your browser opens it. *
 
 If you downloaded the project as a ZIP from your web browser, macOS may refuse to open **Start Workbench.command**. Run the Option A line instead (it works on an existing folder too), or open **System Settings → Privacy & Security** and choose **Open Anyway**. On Windows, if a blue “Windows protected your PC” box appears, choose **More info → Run anyway**.
 
+## Desktop installers (alternative)
+
+Prefer a packaged app instead of the start script? Download an installer.
+
+| Computer | File |
+| --- | --- |
+| Mac (Apple Silicon, macOS 14 or newer) | `ResearchWorkbench-*-macOS-arm64.dmg` |
+| Windows 11 (64-bit) | `ResearchWorkbench-*-Windows-x64-Setup.exe` |
+
+Get the latest files from the [Releases](https://github.com/TheAliAhmadi/News_Workshop/releases) page on GitHub.
+
+**Mac.** Open the disk image and drag **Research Workbench** into Applications. Open it from Applications the first time (not from the disk image).
+
+**Windows.** Run the setup file. It installs for your user account only, so administrator rights are usually not required.
+
+Intel Macs and native Windows on ARM are not supported in this release.
+
+## Opening the unsigned preview
+
+This preview has no verified publisher certificate. Only approve the copy linked by your instructor from this repository.
+
+- **Mac:** After trying to open the installed app, open **System Settings → Privacy & Security**, find the message about Research Workbench, and choose **Open Anyway**. Confirm the prompt. [Apple's instructions](https://support.apple.com/en-gb/102445).
+- **Windows:** If SmartScreen says “Windows protected your PC,” choose **More info → Run anyway**, when offered. [Microsoft's explanation](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
+- School-managed devices and Windows Smart App Control may block unsigned software without an individual override. Ask the instructor or IT team if the approval option is unavailable. Do not turn off system protections.
+
 ## First launch
 
 1. Start the workbench as above; your browser opens it.
@@ -75,6 +100,8 @@ The bottom panel shows the queue. Cancelled or interrupted jobs keep completed r
 Run the Option A line again, or `git pull` if you used Git. Research files, settings, jobs, and keys are kept.
 
 To remove the workbench, first copy anything you want to keep out of `research_workspace`, then delete the `News_Workshop` folder. Saved keys can be removed first with **Remove** under **Connections**.
+
+Using the desktop installer instead? Install a newer release over the previous one; uninstalling removes only the application and keeps research data and cached models.
 
 ## Getting help
 

@@ -32,6 +32,28 @@ Illustrated steps and troubleshooting: [Student guide](docs/student-guide.md).
 
 ![Workbench overview](docs/assets/workbench.png)
 
+## Prefer an installer?
+
+The packaged desktop app is still available as an alternative to the quick start above.
+
+### Download for Mac
+
+[**Download for Mac**](https://github.com/TheAliAhmadi/News_Workshop/releases) — Apple Silicon, macOS 14 or newer
+File: `ResearchWorkbench-*-macOS-arm64.dmg`
+
+Open the disk image and drag **Research Workbench** into Applications. This is an **unsigned preview**; follow the [first-opening instructions](docs/student-guide.md#opening-the-unsigned-preview) if your computer asks for approval.
+
+### Download for Windows
+
+[**Download for Windows**](https://github.com/TheAliAhmadi/News_Workshop/releases) — Windows 11, 64-bit
+File: `ResearchWorkbench-*-Windows-x64-Setup.exe`
+
+Run the setup file. It installs for your user account only. The unsigned preview may show a Windows publisher warning; see the [first-opening instructions](docs/student-guide.md#opening-the-unsigned-preview).
+
+If the Releases page has no assets yet, the first packaged build has not been published—use the [student quick start](#student-quick-start) meanwhile, or wait for a draft release from the Actions workflow.
+
+Intel Macs and native Windows on ARM are not included in this release. Classification runs on the CPU; no NVIDIA driver is required.
+
 ## Tools
 
 | Workspace | Independent operation |
@@ -78,6 +100,6 @@ cd frontend && npm run typecheck && npm run build
 
 Browser tests: start the local app, then `npx playwright install chromium && npm run test:e2e` in `frontend/`. See [verification](docs/verification.md), [instructor guide](docs/instructor-guide.md), and [architecture](docs/architecture.md).
 
-## Desktop installers (optional)
+## Releases
 
-Packaged Mac/Windows apps are also available on the [Releases](https://github.com/TheAliAhmadi/News_Workshop/releases) page as unsigned previews; see the [first-opening notes](docs/publisher-signing.md). GitHub Actions builds Mac and Windows packages and opens a **draft** release with installers, checksums, and third-party notices. Public student downloads wait until installers are [signed and verified](docs/publisher-signing.md). The release plan is in `PLAN_release.md`.
+GitHub Actions builds Mac and Windows packages and opens a **draft** release with installers, checksums, and third-party notices. Public student downloads wait until installers are [signed and verified](docs/publisher-signing.md). The release plan is in `PLAN_release.md`.
