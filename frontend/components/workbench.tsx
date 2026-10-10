@@ -36,7 +36,7 @@ import {
   query,
   setToken,
 } from "@/lib/api";
-import { loadPreferences, savePreferences } from "@/lib/storage";
+import { loadPreferences, savePreferences, useAutosave } from "@/lib/storage";
 const TOOLS = [
   { id: "news", title: "News API", icon: Newspaper },
   { id: "hf", title: "Hugging Face", icon: BrainCircuit },
@@ -140,14 +140,7 @@ export default function Workbench() {
       })
       .catch(report);
   }, [refresh, report]);
-  // Debounced so typing in a tool form does not write on every keystroke.
-  useEffect(() => {
-    if (!boot) return;
-    const timer = setTimeout(() => {
-      savePreferences(configs).catch(report);
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [configs, boot, report]);
+  useAutosave(configs, savePreferences, { enabled: !!boot, onError: report });
   const poll = useCallback(async () => {
     try {
       const list = await api("/jobs");

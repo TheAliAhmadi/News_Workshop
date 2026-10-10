@@ -9,9 +9,12 @@ export async function api<T = any>(
   path: string,
   body?: any,
   signal?: AbortSignal,
+  keepalive = false,
 ): Promise<T> {
   const response = await fetch("/api" + path, {
     signal,
+    // Lets a save started while the page is closing finish in the background.
+    keepalive,
     method: body === undefined ? "GET" : "POST",
     headers:
       body instanceof FormData

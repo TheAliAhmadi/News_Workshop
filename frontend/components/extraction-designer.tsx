@@ -4,7 +4,7 @@ import { Loader2, RotateCcw, Send, Sparkles, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { Check, Field } from "./fields";
 import { api, pretty } from "@/lib/api";
-import { designerSessionPath } from "@/lib/storage";
+import { designerSessionPath, useAutosave } from "@/lib/storage";
 
 export type EditorDesign = {
   instructions: string;
@@ -97,17 +97,19 @@ export function ExtractionDesigner({
       latest.current.onBusy(false);
     };
   }, [storagePath]);
-  useEffect(() => {
-    if (!ready) return;
-    const timer = setTimeout(() => {
-      api(storagePath, session).catch(() =>
+  // Only typing a request waits; replies, undo, and settings save at once.
+  useAutosave(
+    session,
+    (value, keepalive) => api(storagePath, value, undefined, keepalive),
+    {
+      enabled: ready,
+      urgentKey: ({ draft, ...rest }) => JSON.stringify(rest),
+      onError: () =>
         setNotice(
           "This conversation could not be saved. Save your extraction preset to keep the design.",
         ),
-      );
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [session, ready, storagePath]);
+    },
+  );
 
   const cancel = () => {
     sequence.current++;
