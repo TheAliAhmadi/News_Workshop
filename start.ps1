@@ -12,16 +12,29 @@ function Fail($message) {
     Write-Host ''
     Write-Host "Setup stopped: $message" -ForegroundColor Red
     Write-Host 'Ask your instructor for help and include the message above.'
-    Read-Host 'Press Enter to close'
+    # Keep a double-clicked window open so the message can be read.
+    if (-not $env:CI) { Read-Host 'Press Enter to close' }
     exit 1
 }
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    # Download uv.exe directly: no installer script, so no execution-policy
+    # or PowerShell module requirements on locked-down machines.
     Write-Host 'Installing uv (one time only)...'
-    $env:UV_INSTALL_DIR = $uvHome
-    $env:UV_NO_MODIFY_PATH = '1'
-    try { Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression }
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }
+    $zip = Join-Path ([IO.Path]::GetTempPath()) ("uv-" + [guid]::NewGuid() + '.zip')
+    try {
+        $ProgressPreference = 'SilentlyContinue'  # The progress bar makes downloads very slow.
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest "https://github.com/astral-sh/uv/releases/latest/download/uv-$arch-pc-windows-msvc.zip" -OutFile $zip -UseBasicParsing
+        New-Item -ItemType Directory -Force -Path $uvHome | Out-Null
+        Expand-Archive $zip -DestinationPath $uvHome -Force
+        $exe = Get-ChildItem $uvHome -Recurse -Filter uv.exe | Select-Object -First 1
+        if (-not $exe) { throw 'uv.exe missing from download' }
+        if ($exe.DirectoryName -ne $uvHome) { Copy-Item (Join-Path $exe.DirectoryName 'uv*.exe') $uvHome -Force }
+    }
     catch { Fail 'could not download uv. Check your internet connection.' }
+    finally { Remove-Item $zip -ErrorAction SilentlyContinue }
 }
 
 $python = '.venv\Scripts\python.exe'

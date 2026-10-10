@@ -27,7 +27,9 @@ function files(path) {
     return [];
   }
   if (!stat.isDirectory()) return [path];
+  // Hidden files such as macOS .DS_Store are not sources and are not committed.
   return readdirSync(path)
+    .filter((name) => !name.startsWith("."))
     .sort()
     .flatMap((name) => files(join(path, name)));
 }

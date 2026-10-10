@@ -27,4 +27,5 @@ if (Test-Path (Join-Path $dest '.git')) {
 Write-Host ''
 Write-Host "Next time, start it by double-clicking start.bat in $dest"
 Write-Host ''
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dest 'start.ps1')
+# start.bat prepares a clean Windows PowerShell environment, then starts.
+& (Join-Path $dest 'start.bat')
