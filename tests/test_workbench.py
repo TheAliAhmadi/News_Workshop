@@ -29,7 +29,7 @@ def dest(c,name='result.json'):
     return {'root':c.root,'path':'','filename':name,'format':Path(name).suffix[1:]}
 
 def context(tmp_path,keys=None):
-    folder=tmp_path/'job';folder.mkdir()
+    folder=tmp_path/'job';folder.mkdir(parents=True)
     (folder/'status.json').write_text(json.dumps({'state':'running','completed':0}),encoding='utf-8')
     return Context(folder,keys or {})
 
@@ -185,9 +185,38 @@ def test_news_partial_pages_retained_and_domains_only(tmp_path,monkeypatch):
         return SimpleNamespace(status_code=200,json=lambda:{'status':'ok','totalResults':101,'articles':[{'title':str(i)} for i in range(100)]})
     monkeypatch.setattr('workbench.processors.requests.get',get)
     ctx=context(tmp_path,{'news':'fake'})
-    with pytest.raises(ValueError,match='rateLimited'):news_process(ctx,{'company':'Acme','combined_query':'"Acme" AND (anything)','domains':['reuters.com'],'max_results':101})
+    with pytest.raises(ValueError,match='limiting requests'):news_process(ctx,{'company':'Acme','combined_query':'"Acme" AND (anything)','domains':['reuters.com'],'max_results':101})
     assert len(ctx.rows)==100 and ctx.status['next_page']==2
     assert calls[0]['params']['domains']=='reuters.com' and 'sources' not in calls[0]['params']
+
+def test_news_plan_limit_finishes_with_retrieved_articles(tmp_path,monkeypatch):
+    calls=[]
+    def get(url,**kw):
+        calls.append(kw)
+        if len(calls)==2:return SimpleNamespace(status_code=426,json=lambda:{'status':'error','code':'maximumResultsReached','message':'Developer accounts are limited to 100 results.'})
+        return SimpleNamespace(status_code=200,json=lambda:{'status':'ok','totalResults':500,'articles':[{'title':str(i)} for i in range(100)]})
+    monkeypatch.setattr('workbench.processors.requests.get',get)
+    ctx=context(tmp_path,{'news':'fake'})
+    result=news_process(ctx,{'company':'Acme','combined_query':'"Acme" AND (x)','max_results':500})
+    assert len(result)==100 and ctx.status['plan_limit_reached'] and ctx.status['total']==100
+
+def test_news_errors_explain_what_to_do(tmp_path,monkeypatch):
+    monkeypatch.setattr('workbench.processors.requests.get',lambda url,**kw:SimpleNamespace(status_code=401,json=lambda:{'status':'error','code':'apiKeyInvalid','message':'Your API key is invalid or incorrect.'}))
+    with pytest.raises(ValueError,match='Check your NewsAPI key under Connections. NewsAPI says: Your API key is invalid'):
+        news_process(context(tmp_path/'a',{'news':'fake'}),{'company':'Acme','combined_query':'"Acme" AND (x)'})
+    monkeypatch.setattr('workbench.processors.requests.get',lambda url,**kw:SimpleNamespace(status_code=426,json=lambda:{'status':'error','code':'maximumResultsReached'}))
+    with pytest.raises(ValueError,match='at most 100 articles'):
+        news_process(context(tmp_path/'b',{'news':'fake'}),{'company':'Acme','combined_query':'"Acme" AND (x)'})
+
+def test_provider_errors_are_plain_and_never_echo_details():
+    from workbench.processors import safe_error
+    class APIError(Exception):
+        def __init__(self,status):super().__init__('Bearer sk-secret leaked');self.status_code=status
+    assert safe_error(APIError(401)).startswith('The API key was rejected')
+    assert 'Rate limit' in safe_error(APIError(429)) and 'temporarily unavailable' in safe_error(APIError(503))
+    class APIConnectionError(Exception):pass
+    assert 'internet connection' in safe_error(APIConnectionError('sk-secret'))
+    assert all('sk-secret' not in safe_error(e) for e in (APIError(400),APIError(401),APIConnectionError('sk-secret')))
 
 def test_human_validation_and_aggregation_without_pipeline(client,tmp_path):
     data=[{'company':'Acme','date':'2026-09-01','relevant':True,'dimension':'social','relationship':'firm_action','theme':'labor'}]

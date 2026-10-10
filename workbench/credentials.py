@@ -14,14 +14,14 @@ from .version import APP_NAME
 
 SERVICE = APP_NAME
 ENVIRONMENT = {'news': 'NEWS_API_KEY', 'openai': 'OPENAI_API_KEY'}
-UNAVAILABLE = ('Secure storage is unavailable on this computer. Keys are kept for '
-               'this session only and must be entered again after a restart.')
+SESSION_ONLY = 'Keys are kept for this session only and must be entered again after a restart.'
+UNAVAILABLE = 'Secure storage is unavailable on this computer. ' + SESSION_ONLY
 
 
 def _backend():
     """Return an available keyring backend, or a reason it cannot be used."""
     if os.environ.get('WORKBENCH_SECURE_STORAGE', '').strip().lower() in ('0', 'false', 'no'):
-        return None, 'Secure storage is turned off for this run. ' + UNAVAILABLE
+        return None, 'Secure storage is turned off for this run. ' + SESSION_ONLY
     try:
         import keyring
     except Exception:
