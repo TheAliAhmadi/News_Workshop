@@ -86,12 +86,15 @@ export function Section({
 export function More({
   label,
   children,
+  open,
 }: {
   label: string;
   children: ReactNode;
+  /** Start unfolded, for help that most people should see once. */
+  open?: boolean;
 }) {
   return (
-    <details className="more">
+    <details className="more" open={open}>
       <summary>{label}</summary>
       <div className="more-body">{children}</div>
     </details>

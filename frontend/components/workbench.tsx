@@ -22,7 +22,7 @@ import { Button } from "./ui/button";
 import { Explorer, Modal, Preview } from "./explorer";
 import { FirstRunGuide } from "./first-run";
 import { FolderPicker } from "./folder-picker";
-import { KeyLinks } from "./key-links";
+import { Connections } from "./connections";
 import { KEY_NAMES, NEXT_STEP, STEPS, stepOf } from "./steps";
 import { Tool, defaults } from "./tools";
 import { Check, Destination, Field } from "./fields";
@@ -55,8 +55,6 @@ export default function Workbench() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [connections, setConnections] = useState(false);
-  const [keys, setKeys] = useState({ news: "", openai: "" });
-  const [remember, setRemember] = useState(true);
   const [firstRun, setFirstRun] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [jobsOpen, setJobsOpen] = useState(false);
@@ -110,7 +108,6 @@ export default function Workbench() {
     api("/bootstrap")
       .then(async (b) => {
         setToken(b.token);
-        setRemember(!!b.secure_storage?.available);
         setRoots(b.roots);
         setFolder({ root: b.roots[0].id, path: "" });
         // Preferences come from backend user storage, which survives a restart
@@ -261,17 +258,6 @@ export default function Workbench() {
       await poll();
     } catch (e) {
       report(e);
-    }
-  };
-  const saveKeys = async (body: any, done: string) => {
-    try {
-      const result = await api("/connections", body);
-      setBoot({ ...boot, ...result });
-      setMessage(done);
-      return true;
-    } catch (e) {
-      report(e);
-      return false;
     }
   };
   /** Newest saved result of the steps that feed `tool`, offered as its input. */
@@ -643,98 +629,11 @@ export default function Workbench() {
         </main>
       </div>
       {connections && (
-        <Modal
-          title="Connections"
-          description="Your own API keys. They stay on this computer and are never shown again after saving."
-          close={() => {
-            setConnections(false);
-            setKeys({ news: "", openai: "" });
-          }}
-        >
-          <KeyLinks />
-          {(["news", "openai"] as const).map((name) => (
-            <Field
-              key={name}
-              label={
-                KEY_NAMES[name] +
-                " key · " +
-                (boot.connections[name]
-                  ? boot.remembered[name]
-                    ? "remembered on this computer"
-                    : "set for this session"
-                  : "not set")
-              }
-            >
-              <input
-                type="password"
-                autoComplete="off"
-                value={keys[name]}
-                onChange={(e) => setKeys({ ...keys, [name]: e.target.value })}
-                placeholder={
-                  boot.connections[name]
-                    ? "Leave blank to keep the current key"
-                    : "Paste your key"
-                }
-              />
-            </Field>
-          ))}
-          {boot.secure_storage.available ? (
-            <Check
-              label="Remember on this computer"
-              value={remember}
-              set={setRemember}
-            />
-          ) : (
-            <p className="hint" role="status">
-              {boot.secure_storage.detail}
-            </p>
-          )}
-          <p className="hint">
-            {boot.secure_storage.available
-              ? "Remembered keys are stored by " +
-                (boot.build.system === "Windows"
-                  ? "Windows Credential Manager"
-                  : "the macOS Keychain") +
-                ", never in your project files. Clear the box to keep a key for this session only."
-              : "Keys are never written to a plain file."}
-          </p>
-          <div className="row wrap">
-            <Button
-              onClick={async () => {
-                const entered = Object.fromEntries(
-                  Object.entries(keys).filter(([, v]) => v.trim()),
-                );
-                if (
-                  await saveKeys(
-                    { ...entered, remember },
-                    "Connections updated.",
-                  )
-                ) {
-                  setKeys({ news: "", openai: "" });
-                  setConnections(false);
-                }
-              }}
-            >
-              Save connections
-            </Button>
-            {(["news", "openai"] as const)
-              .filter((name) => boot.connections[name])
-              .map((name) => (
-                <Button
-                  key={name}
-                  variant="outline"
-                  onClick={() =>
-                    saveKeys(
-                      { remove: [name] },
-                      `The ${KEY_NAMES[name]} key was removed from this computer.`,
-                    )
-                  }
-                >
-                  Remove {KEY_NAMES[name]} key
-                </Button>
-              ))}
-          </div>
-        </Modal>
+        <Connections
+          boot={boot}
+          update={(status) => setBoot((prev: any) => ({ ...prev, ...status }))}
+          close={() => setConnections(false)}
+        />
       )}
       {firstRun && boot && (
         <FirstRunGuide

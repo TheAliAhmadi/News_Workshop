@@ -94,9 +94,25 @@ test("explorer, independent tools, nested presets and real worker output", async
   });
   await page.getByRole("button", { name: filename, exact: true }).click();
   await expect(page.locator(".dataset-summary")).toContainText("2 rows");
-  await page.locator("tbody tr").first().press("Enter");
-  await expect(page.getByRole("dialog")).toContainText(
+  await page
+    .locator(".file-container:not([hidden]) tbody tr")
+    .first()
+    .press("Enter");
+  const row = page.getByRole("dialog");
+  // Rows open as a readable article, with the raw data one tab away.
+  await expect(row.locator(".article-view h2")).toHaveText(
     "Fictional clean energy news",
+  );
+  await expect(row.locator(".article-lead")).toHaveText(
+    "Fictional software test",
+  );
+  await row.getByRole("button", { name: "Next" }).click();
+  await expect(row.locator(".article-view h2")).toHaveText(
+    "Fictional board news",
+  );
+  await row.getByRole("tab", { name: "Raw JSON" }).click();
+  await expect(row.locator(".record-inspector")).toContainText(
+    '"company": "Acme"',
   );
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: `Actions for ${filename}` }).click();
@@ -174,7 +190,13 @@ test("explorer, independent tools, nested presets and real worker output", async
     .getByRole("dialog")
     .getByLabel(/^OpenAI key/)
     .fill("sk-placeholder-for-tests");
-  await page.getByRole("button", { name: "Save connections" }).click();
+  await page.getByRole("button", { name: "Save and check" }).click();
+  // The dialog stays open to show the result of checking the key.
+  await expect(page.getByRole("dialog")).toContainText(
+    "Key checks are turned off for this run.",
+  );
+  await expect(page.getByRole("dialog")).toContainText("Saved key ending in");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(active(page).locator(".callout")).toHaveCount(0);
   await active(page)
     .getByLabel("Output JSON Schema")

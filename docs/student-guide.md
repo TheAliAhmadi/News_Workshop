@@ -83,15 +83,19 @@ Each step page starts with **How this step works**, a flowchart that fills in wi
 
 Settings most people never change are folded under **More …** sections.
 
-Under **Files**, upload datasets, open a file to preview its rows, or use **Open folder** to show another folder from your computer: click through your folders (Desktop, Documents, …), or make a new one, then choose it. A file's **⋯** menu has **Use in Classify / Extract**, **Download**, **Rename**, and **Delete…**. To change your main research folder, open **Help (?)** and choose **Change…** next to Research folder. Your research files are in the `research_workspace` folder inside `News_Workshop` unless you chose another.
+Under **Files**, upload datasets, open a file to preview its rows (click a row to read it as an article, with any labels and extracted fields on top; **All fields** and **Raw JSON** show the data itself), or use **Open folder** to show another folder from your computer: click through your folders (Desktop, Documents, …), or make a new one, then choose it. A file's **⋯** menu has **Use in Classify / Extract**, **Download**, **Rename**, and **Delete…**. To change your main research folder, open **Help (?)** and choose **Change…** next to Research folder. Your research files are in the `research_workspace` folder inside `News_Workshop` unless you chose another.
 
-Closing the terminal window stops the workbench. Interrupted jobs keep their checkpoints; resume them explicitly after the next start.
+Closing the terminal window stops the workbench. Starting it again while it is already running simply reopens it in your browser. Interrupted jobs keep their checkpoints; resume them explicitly after the next start.
 
 ## Keys and privacy
 
-Keys entered in **Connections** stay on your computer. With **Remember on this computer**, they are stored through macOS Keychain or Windows Credential Manager—not in your research files and not sent back to the interface after saving. Use **Remove** to forget them, or turn off Remember for a session-only key.
+Open **Connections** (top right) and paste your keys. **Save and check** asks NewsAPI or OpenAI whether each key works, and the window stays open to show the answer:
 
-If secure storage is unavailable, the app keeps keys for the current session only and tells you plainly. It never silently saves plaintext keys to disk.
+- **Working**: the provider accepted the key.
+- **Not accepted**: the provider rejected it, so it was *not* saved. Copy it again from the provider's website; OpenAI keys start with `sk-`.
+- **Saved, not checked yet**: the provider could not be reached (for example, no internet). The key is saved and will be checked when you run a step.
+
+The window shows the last four characters of the saved key, so you can tell which key is in use. With **Remember on this computer**, keys are kept in the macOS Keychain or Windows Credential Manager, never in your project files or on GitHub. They are only sent to NewsAPI or OpenAI when you run a step. Use **Check it works** any time, or **Remove** to forget a key.
 
 ## Models
 

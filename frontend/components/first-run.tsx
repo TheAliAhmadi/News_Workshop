@@ -37,6 +37,7 @@ export function FirstRunGuide({
   const [keys, setKeys] = useState({ news: "", openai: "" });
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [keyError, setKeyError] = useState("");
   const secure = bootstrap.secure_storage || { available: false, detail: "" };
 
   const advance = () => setStep(ORDER[ORDER.indexOf(step) + 1]);
@@ -63,11 +64,23 @@ export function FirstRunGuide({
     );
     if (!Object.keys(entered).length) return advance();
     setBusy(true);
+    setKeyError("");
     try {
       const status = await api("/connections", { ...entered, remember });
       onBootstrapChange(status);
-      setKeys({ news: "", openai: "" });
-      advance();
+      // A key the provider rejected was not saved; keep it in its box to fix.
+      const rejected = Object.entries(status.checks || {}).filter(
+        ([, check]: [string, any]) => check.state === "rejected",
+      );
+      setKeys((prev) => ({
+        news: rejected.some(([n]) => n === "news") ? prev.news : "",
+        openai: rejected.some(([n]) => n === "openai") ? prev.openai : "",
+      }));
+      if (rejected.length)
+        setKeyError(
+          rejected.map(([, c]: [string, any]) => c.message).join(" "),
+        );
+      else advance();
     } catch (e) {
       report(e);
     } finally {
@@ -160,9 +173,14 @@ export function FirstRunGuide({
           ) : (
             <p className="hint">{secure.detail}</p>
           )}
+          {keyError && (
+            <p className="inline-error" role="alert">
+              {keyError}
+            </p>
+          )}
           <div className="row wrap">
             <Button onClick={saveKeys} disabled={busy}>
-              Save and continue
+              {busy ? "Checking your keys…" : "Check and continue"}
             </Button>
             <Button variant="outline" onClick={advance}>
               Skip for now

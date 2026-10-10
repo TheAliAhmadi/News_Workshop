@@ -313,3 +313,51 @@ def test_llm_cancellation_keeps_completed_rows_for_resume(tmp_path,monkeypatch):
     (ctx.folder/'cancel').unlink()
     result=llm_process(ctx,df,cfg)
     assert result.llm_status.tolist()==['ok','ok'] and len(calls)==2
+
+def test_two_backends_never_run_the_same_job(client):
+    ref=upload(client)
+    job=client.post('/api/jobs',json={'tool':'clean','input':ref,'config':{},'destination':dest(client,'once.csv')}).json()
+    other=JobManager(client.workspace,{},start=False)
+    assert client.manager._claim(job['id']) and not other._claim(job['id'])
+    Context(client.manager.folder(job['id']),{}).update(state='failed')
+    client.manager.resume(job['id'])
+    assert other._claim(job['id'])  # Resuming releases the claim for one new run.
+
+def test_second_start_reopens_the_running_workbench(monkeypatch,capsys):
+    import workbench.__main__ as entry
+    from launcher.instance import SingleInstance
+    opened=[]
+    monkeypatch.setattr(entry.webbrowser,'open',opened.append)
+    monkeypatch.setattr('launcher.service.BackendService.start',lambda self:pytest.fail('a second backend was started'))
+    with SingleInstance() as running:
+        running.publish('http://127.0.0.1:8765')
+        assert entry.main([])==0
+    assert opened==['http://127.0.0.1:8765'] and 'already running' in capsys.readouterr().out
+
+def test_saving_keys_checks_them_first(client,monkeypatch):
+    results={'good-key-123456':'ok','typo-key-123456':'rejected','offline-key-1234':'unchecked'}
+    monkeypatch.setattr('workbench.api.check_key',lambda name,value:{'state':results[value],'message':results[value]})
+    r=client.post('/api/connections',json={'openai':'  good-key-123456\n','news':'typo-key-123456'}).json()
+    assert r['checks']['openai']['state']=='ok' and r['checks']['news']['state']=='rejected'
+    assert r['connections']=={'news':False,'openai':True} and r['hints']['openai']=='…3456'
+    assert 'good-key' not in json.dumps(r)  # Only the last four characters are ever returned.
+    # A rejected replacement never overwrites a working key.
+    r=client.post('/api/connections',json={'openai':'typo-key-123456'}).json()
+    assert r['connections']['openai'] and r['hints']['openai']=='…3456'
+    r=client.post('/api/connections',json={'news':'offline-key-1234'}).json()
+    assert r['checks']['news']['state']=='unchecked' and r['connections']['news']
+    assert client.post('/api/connections/check',json={'name':'openai'}).json()['checks']['openai']['state']=='ok'
+
+def test_key_checks_read_provider_answers(monkeypatch):
+    from workbench.credentials import check_key
+    answers={'ok':{'status':'ok','sources':[]},'bad':{'status':'error','code':'apiKeyInvalid'},'used':{'status':'error','code':'apiKeyExhausted'}}
+    monkeypatch.setattr('requests.get',lambda url,headers,timeout:SimpleNamespace(status_code=200,json=lambda:answers[headers['X-Api-Key']]))
+    assert [check_key('news',k)['state'] for k in ('ok','bad','used')]==['ok','rejected','ok']
+    import openai
+    class Rejecting:
+        def __init__(self,**kw):
+            error=Exception('Incorrect API key provided: sk-abc');error.status_code=401
+            self.models=SimpleNamespace(list=lambda:(_ for _ in ()).throw(error))
+    monkeypatch.setattr(openai,'OpenAI',Rejecting)
+    result=check_key('openai','sk-abc')
+    assert result['state']=='rejected' and 'sk-abc' not in result['message']

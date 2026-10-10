@@ -134,7 +134,8 @@ def save_dataset(df, target, overwrite=False, expected_hash=None):
     content = csv_text(df) if target.suffix.lower() == '.csv' else json_text(records(df))
     if overwrite:
         if target.exists() and digest(target) != expected_hash:
-            raise ValueError('Output changed since submission. Choose a new destination before resuming.')
+            raise ValueError('The output file was changed by something else while this job ran, so it was not replaced. '
+                             'Your results are kept: use Resume to a different file to save them.')
         atomic_write(target, content)
     else:
         # O_EXCL prevents a concurrent job or explorer upload from being overwritten.

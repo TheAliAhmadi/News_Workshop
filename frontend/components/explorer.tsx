@@ -30,6 +30,7 @@ import { api, Entry, Ref, Root, keyOf, query, pretty } from "@/lib/api";
 import { Field } from "./fields";
 import { stepOf } from "./steps";
 import { FolderPicker } from "./folder-picker";
+import { RecordView } from "./record-view";
 
 /** Steps a dataset can be sent to from the explorer or a preview. */
 const DATASET_STEPS = ["hf", "llm"];
@@ -474,7 +475,7 @@ export function Preview({
   const [data, setData] = useState<any>(null);
   const [offset, setOffset] = useState(0);
   const [text, setText] = useState("");
-  const [record, setRecord] = useState<any>(null);
+  const [record, setRecord] = useState<number | null>(null);
   const [saveAs, setSaveAs] = useState(false);
   const [newName, setNewName] = useState("");
   const [identity, setIdentity] = useState("");
@@ -585,11 +586,11 @@ export function Preview({
                   <tr
                     key={i}
                     tabIndex={0}
-                    onClick={() => setRecord(r)}
+                    onClick={() => setRecord(i)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        setRecord(r);
+                        setRecord(i);
                       }
                     }}
                   >
@@ -659,10 +660,13 @@ export function Preview({
           </div>
         </div>
       )}
-      {record && (
-        <Modal title="Record inspector" close={() => setRecord(null)}>
-          <pre className="record-inspector">{pretty(record)}</pre>
-        </Modal>
+      {record !== null && (
+        <RecordView
+          rows={data.rows}
+          index={record}
+          offset={offset}
+          close={() => setRecord(null)}
+        />
       )}
       {saveAs && (
         <Modal title="Save configuration as" close={() => setSaveAs(false)}>

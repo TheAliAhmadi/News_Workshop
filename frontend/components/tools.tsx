@@ -25,6 +25,7 @@ import {
 } from "./fields";
 import { CodeViewer, TeachingCode } from "./code-viewer";
 import { ExtractionDesigner } from "./extraction-designer";
+import { EnumGuide, ExtractExample, FieldTypeGuide } from "./extract-help";
 import { Flowchart, flowFor } from "./flow";
 import { SchemaBuilder, EnumBuilder } from "./schema-builder";
 import { Modal } from "./explorer";
@@ -1014,6 +1015,12 @@ export function Tool({
                   : "Custom design"}
               </span>
             </div>
+            <More
+              label="How it works: instructions, fields, and allowed values (example)"
+              open
+            >
+              <ExtractExample />
+            </More>
             {showDesigner && (
               <ExtractionDesigner
                 design={{
@@ -1060,6 +1067,9 @@ export function Tool({
                   </button>
                 </div>
               </div>
+              <More label="What do the field types mean?">
+                <FieldTypeGuide />
+              </More>
               {schemaMode === "visual" ? (
                 <SchemaBuilder
                   text={c.schemaText}
@@ -1077,12 +1087,10 @@ export function Tool({
                   }
                 />
               )}
-              <More label="Allowed-value lists (enums)">
+              <More label="Allowed-value lists (enums): fixed choices for a field">
+                <EnumGuide />
                 <div className="editor-heading flush">
-                  <p className="hint">
-                    Named lists of allowed values, shown to the model in every
-                    prompt.
-                  </p>
+                  <span className="label">Your lists</span>
                   <div className="segmented">
                     <button
                       className={enumMode === "visual" ? "active" : ""}
@@ -1207,13 +1215,17 @@ export function Tool({
                 onChange={(e) => patch({ model: e.target.value })}
               />
             </Field>
-            <More label="Generation settings">
+            <More label="Generation settings (optional): temperature, reasoning, length">
               <p className="hint">
-                Leave these empty unless you need them. Support varies by model;
-                unsupported settings show an error in the one-row test.
+                Leave these empty unless you need them: each model has sensible
+                defaults. Not every model supports every setting; if one is not
+                supported, “Test one row first” shows an error.
               </p>
               <div className="grid3">
-                <Field label="Temperature (optional)">
+                <Field
+                  label="Temperature"
+                  hint="How varied the answers are, 0 to 2. 0 gives the most consistent answers, best for research. Many newer models ignore it."
+                >
                   <input
                     type="number"
                     min={0}
@@ -1228,7 +1240,10 @@ export function Tool({
                     }
                   />
                 </Field>
-                <Field label="Reasoning effort">
+                <Field
+                  label="Reasoning effort"
+                  hint="For reasoning models: how long the model thinks before answering. Higher is more careful, but slower and more expensive."
+                >
                   <select
                     value={c.reasoning_effort || ""}
                     onChange={(e) =>
@@ -1243,7 +1258,10 @@ export function Tool({
                     )}
                   </select>
                 </Field>
-                <Field label="Maximum output tokens">
+                <Field
+                  label="Maximum answer length (tokens)"
+                  hint="A token is about ¾ of a word. Too low cuts answers off and the row fails; leave empty for the model's default."
+                >
                   <input
                     type="number"
                     min={1}

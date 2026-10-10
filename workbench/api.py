@@ -17,7 +17,7 @@ from config.settings import FINBERT_MODEL_NAME
 from . import paths
 from .files import Workspace, browse, create_folder, read_dataset, read_user_text, records, digest
 from .configuration import SOURCES, templates, validate_schema, validate_config
-from .credentials import CredentialStore
+from .credentials import CredentialStore, check_key
 from .jobs import JobManager
 from .models import ModelPreparer
 from .preferences import UserStore
@@ -100,10 +100,32 @@ def create_app(state=None, default=None, start_worker=True):
 
     @app.post('/api/connections')
     def connections(body: dict):
-        """Update session keys, and remember or remove them on this computer."""
+        """Check new keys with their provider, then save the ones that work.
+
+        A key the provider rejects is not saved, so a typo never silently
+        replaces a working key. Keys that cannot be checked (offline) are saved.
+        """
         remove = [name for name in body.get('remove', []) if name in keys]
-        values = {name: value for name, value in body.items() if name in keys}
-        return credentials.apply(values, remember=bool(body.get('remember')), remove=remove)
+        values = {name: value.strip() for name, value in body.items()
+                  if name in keys and isinstance(value, str) and value.strip()}
+        checks = {}
+        for name, value in list(values.items()):
+            if os.environ.get('WORKBENCH_SKIP_KEY_CHECKS'):  # Offline browser tests.
+                checks[name] = {'state': 'unchecked', 'message': 'Key checks are turned off for this run.'}
+            else:
+                checks[name] = check_key(name, value)
+                if checks[name]['state'] == 'rejected':
+                    values.pop(name)
+        return {**credentials.apply(values, remember=bool(body.get('remember')), remove=remove), 'checks': checks}
+
+    @app.post('/api/connections/check')
+    def connection_check(body: dict):
+        name = body.get('name')
+        if name not in keys:
+            raise ValueError('Unknown connection.')
+        if not keys[name]:
+            raise ValueError('No key is set for this connection yet.')
+        return {**credentials.status(), 'checks': {name: check_key(name, keys[name])}}
 
     @app.get('/api/settings')
     def read_settings():

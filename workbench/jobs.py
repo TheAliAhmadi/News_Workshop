@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import shutil
 import multiprocessing as mp
 import threading
@@ -177,6 +178,7 @@ class JobManager:
                 raise ValueError('Another active job is using this output destination.')
             atomic_write(folder / 'request.json', json_text(req))
             (folder / 'cancel').unlink(missing_ok=True)
+            (folder / 'claimed').unlink(missing_ok=True)
             ctx.update(state='queued', phase='Queued to resume; successful rows retained', error='')
             return ctx.status
 
@@ -199,12 +201,23 @@ class JobManager:
                 if ctx.status['state'] == 'running':
                     ctx.update(state='interrupted', phase='Worker stopped unexpectedly; resume from checkpoint.')
                 self.process, self.active_id = None, None
-            queued = [j for j in reversed(self.list()) if j['state'] == 'queued']
-            if queued:
-                job = queued[0]
-                self.active_id = job['id']
-                self.process = mp.get_context('spawn').Process(target=run_job, args=(str(self.folder(job['id'])), dict(self.keys)), daemon=True)
-                self.process.start()
+            for job in reversed(self.list()):
+                if job['state'] == 'queued' and self._claim(job['id']):
+                    break
+            else:
+                return
+            self.active_id = job['id']
+            self.process = mp.get_context('spawn').Process(target=run_job, args=(str(self.folder(job['id'])), dict(self.keys)), daemon=True)
+            self.process.start()
+
+    def _claim(self, job_id):
+        """Take a queued job exactly once, even if another backend shares
+        this folder: creating the claim file fails if it already exists."""
+        try:
+            os.close(os.open(self.folder(job_id) / 'claimed', os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return True
+        except FileExistsError:
+            return False
 
     def close(self):
         self.stop_event.set()
