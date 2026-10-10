@@ -27,6 +27,10 @@ const nested = {
   required: ["events"],
   additionalProperties: false,
 };
+const step = (page: Page, name: string) =>
+  page
+    .getByRole("navigation", { name: "Workflow steps" })
+    .getByRole("button", { name: new RegExp("^\\d\\s*" + name) });
 const active = (page: Page) => page.locator(".tool-container:not([hidden])");
 test("explorer, independent tools, nested presets and real worker output", async ({
   page,
@@ -35,7 +39,7 @@ test("explorer, independent tools, nested presets and real worker output", async
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "News API", exact: true }),
+    page.getByRole("heading", { name: "Collect news", exact: true }),
   ).toBeVisible();
   const testFolder = mkdtempSync(join(tmpdir(), "workbench-browser-"));
   await page.getByRole("button", { name: "Open folder", exact: true }).click();
@@ -79,7 +83,7 @@ test("explorer, independent tools, nested presets and real worker output", async
     .click();
   await page.getByRole("button", { name: `Actions for ${renamed}` }).click();
   await page
-    .getByRole("button", { name: "Use in Hugging Face", exact: true })
+    .getByRole("button", { name: "Use in Classify", exact: true })
     .click();
   await expect(active(page).getByLabel("Input dataset")).toContainText(renamed);
   await active(page).getByRole("button", { name: "Move content up" }).click();
@@ -91,7 +95,9 @@ test("explorer, independent tools, nested presets and real worker output", async
   );
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: `Actions for ${renamed}` }).click();
-  await page.getByRole("button", { name: "Use in LLM", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Use in Extract", exact: true })
+    .click();
   await active(page)
     .getByRole("button", { name: "Blank custom schema", exact: true })
     .click();
@@ -134,6 +140,15 @@ test("explorer, independent tools, nested presets and real worker output", async
   await expect(page.getByRole("dialog")).toContainText("Article text");
   await expect(page.getByRole("dialog")).not.toContainText("FinBERT");
   await page.getByRole("button", { name: "Close", exact: true }).click();
+  // Extraction needs a key before it can run; a session-only placeholder is
+  // enough to reach the backend's schema validation.
+  await active(page).getByRole("button", { name: "Add key" }).click();
+  await page
+    .getByRole("dialog")
+    .getByLabel(/^OpenAI key/)
+    .fill("sk-placeholder-for-tests");
+  await page.getByRole("button", { name: "Save connections" }).click();
+  await expect(active(page).locator(".callout")).toHaveCount(0);
   await active(page)
     .getByLabel("Output JSON Schema")
     .fill(JSON.stringify({ ...nested, additionalProperties: true }));
@@ -175,7 +190,7 @@ test("explorer, independent tools, nested presets and real worker output", async
     .locator(".file-container:not([hidden])")
     .getByRole("button", { name: "Save", exact: true })
     .click();
-  await page.getByRole("tab", { name: "LLM extraction", exact: true }).click();
+  await step(page, "Extract").click();
   const presetSelect = active(page).getByLabel("Open saved preset");
   const optionValue = await presetSelect
     .locator("option")
@@ -188,10 +203,10 @@ test("explorer, independent tools, nested presets and real worker output", async
   await page.getByRole("button", { name: `Actions for ${renamed}` }).click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Clean", exact: true })
+    .getByRole("button", { name: "Use in Clean", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Clean a dataset", exact: true }),
+    page.getByRole("heading", { name: "Clean data", exact: true }),
   ).toBeVisible();
   await active(page)
     .getByLabel("Workspace", { exact: true })
@@ -206,7 +221,7 @@ test("explorer, independent tools, nested presets and real worker output", async
   const job = page
     .locator(".job-row")
     .filter({ hasText: `clean_${suffix}.json` });
-  await expect(job).toContainText("completed", { timeout: 30000 });
+  await expect(job).toContainText("Done", { timeout: 30000 });
   await job.getByRole("button", { name: "Open result", exact: true }).click();
   await expect(
     page.locator(".file-container:not([hidden]) .dataset-summary"),
@@ -222,12 +237,12 @@ test("explorer, independent tools, nested presets and real worker output", async
   const separator = page.getByRole("separator", { name: "Resize explorer" });
   await separator.focus();
   await page.keyboard.press("ArrowRight");
-  await expect(separator).toHaveAttribute("aria-valuenow", "280");
+  await expect(separator).toHaveAttribute("aria-valuenow", "300");
   await page.reload();
   await expect(
     page.locator(".job-row").filter({ hasText: `clean_${suffix}.json` }),
-  ).toContainText("completed");
-  await page.getByRole("tab", { name: "News API", exact: true }).click();
+  ).toContainText("Done");
+  await step(page, "Collect").click();
   await expect(page.getByLabel("Company name", { exact: true })).toHaveValue(
     "Microsoft",
   );
@@ -287,9 +302,7 @@ test("human assessment and mapped aggregation use independent files", async ({
   expect(response.ok()).toBeTruthy();
   const ref = await response.json();
   await page.goto("/");
-  await page
-    .getByRole("tab", { name: "Human validation", exact: true })
-    .click();
+  await step(page, "Validate").click();
   await active(page)
     .getByLabel("Input dataset")
     .selectOption(JSON.stringify(ref));
@@ -318,9 +331,7 @@ test("human assessment and mapped aggregation use independent files", async ({
   await expect(active(page).locator("pre.notice")).toContainText(
     '"agreement": 1',
   );
-  await page
-    .getByRole("tab", { name: "Aggregate / export", exact: true })
-    .click();
+  await step(page, "Aggregate").click();
   await active(page)
     .getByLabel("Input dataset")
     .selectOption(JSON.stringify(ref));
@@ -346,7 +357,7 @@ test("human assessment and mapped aggregation use independent files", async ({
   const job = page
     .locator(".job-row")
     .filter({ hasText: `aggregate_${suffix}.json` });
-  await expect(job).toContainText("completed", { timeout: 30000 });
+  await expect(job).toContainText("Done", { timeout: 30000 });
   await job.locator(".job-name").click();
   await expect(page.getByRole("dialog")).toContainText(
     '"invalid_publication_dates": 1',
@@ -401,7 +412,7 @@ test("configuration Save As chooses a folder and duplicate visual names keep bot
     params: { root: root.id, path: sourceName },
   });
   expect(await original.text()).toBe("Original instructions");
-  await page.getByRole("tab", { name: "LLM extraction", exact: true }).click();
+  await step(page, "Extract").click();
   await active(page)
     .getByRole("button", { name: "JSON Schema", exact: true })
     .click();
@@ -434,8 +445,8 @@ test("configuration Save As chooses a folder and duplicate visual names keep bot
   await expect(active(page).locator(".inline-error")).toContainText(
     "Fix invalid JSON",
   );
-  await page.getByRole("tab", { name: "News API", exact: true }).click();
+  await step(page, "Collect").click();
   await expect(
-    page.getByRole("heading", { name: "News API", exact: true }),
+    page.getByRole("heading", { name: "Collect news", exact: true }),
   ).toBeVisible();
 });

@@ -73,11 +73,13 @@ This preview has no verified publisher certificate. Only approve the copy linked
 3. Enter your **NewsAPI** and/or **OpenAI** keys if you have them. Leave **Remember on this computer** checked to store them securely in your system keychain or credential manager. You can skip and add keys later under **Connections**.
 4. Optionally click **Prepare FinBERT for class** so the default classifier downloads once and is ready offline afterward.
 
-Every step can be skipped. Connections and model preparation are always available from the header later.
+Every step can be skipped. **Connections** is always in the top bar, and FinBERT preparation is also in the **Classify** step.
 
 ## Everyday use
 
-Attach additional folders with **Open folder** in the explorer. Upload datasets, preview rows, and run each tool with its own input, settings, and output destination. Your research files are in the `research_workspace` folder inside `News_Workshop` unless you chose another.
+The sidebar lists the research steps in order: **Collect, Clean, Classify, Extract, Validate, Aggregate**. A key icon next to a step means it needs a key you have not added yet. Each step works on its own: choose any CSV or JSON file as its input, and it saves a new file, so your originals never change.
+
+Under **Files**, upload datasets, open a file to preview its rows, or use **Open folder** to show another folder from your computer. A file's **⋯** menu and its preview both have **Use in** buttons that send it to a step. Your research files are in the `research_workspace` folder inside `News_Workshop` unless you chose another.
 
 Closing the terminal window stops the workbench. Interrupted jobs keep their checkpoints; resume them explicitly after the next start.
 
@@ -89,11 +91,11 @@ If secure storage is unavailable, the app keeps keys for the current session onl
 
 ## Models
 
-The default classifier (`yiyanghkust/finbert-esg`) downloads on first use into a per-user cache and is reused later. Progress is visible; if a download is interrupted, run **Prepare FinBERT for class** again—it continues from what was already cached.
+The default classifier (`yiyanghkust/finbert-esg`, about 440 MB) downloads on first use and is reused afterwards. To download it ahead of class, open **Classify** and choose **Prepare FinBERT for class**. If a download is interrupted, run it again; it continues from what was already downloaded.
 
 ## Jobs
 
-The bottom panel shows the queue. Cancelled or interrupted jobs keep completed rows. Use **Resume / retry failed** to continue. Choosing a new output destination is required if the previous output file changed.
+The **Jobs** bar at the bottom shows what is running; click it to open or close the list. One job runs at a time, and jobs keep running while you switch steps. If something goes wrong, the job shows a plain explanation, such as a rejected key or a NewsAPI plan limit. Stopped or interrupted jobs keep their finished rows: **Resume** continues and retries failed rows, and the folder icon resumes into a different file. **Open result** shows the saved file.
 
 ## Updating and removing
 

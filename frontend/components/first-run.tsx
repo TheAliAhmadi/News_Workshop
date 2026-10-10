@@ -1,16 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
-import {
-  BrainCircuit,
-  CheckCircle2,
-  FolderOpen,
-  KeyRound,
-  Loader2,
-} from "lucide-react";
+import { useState } from "react";
+import { BrainCircuit, FolderOpen, KeyRound } from "lucide-react";
 import { Button } from "./ui/button";
 import { Modal } from "./explorer";
 import { Check, Field } from "./fields";
-import { api, formatBytes } from "@/lib/api";
+import { KeyLinks } from "./key-links";
+import { ModelPreparation } from "./model-preparation";
+import { api } from "@/lib/api";
 
 type Step = "folder" | "keys" | "model" | "done";
 const ORDER: Step[] = ["folder", "keys", "model", "done"];
@@ -39,7 +35,6 @@ export function FirstRunGuide({
   const [keys, setKeys] = useState({ news: "", openai: "" });
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [preparation, setPreparation] = useState<any>(null);
   const secure = bootstrap.secure_storage || { available: false, detail: "" };
 
   const advance = () => setStep(ORDER[ORDER.indexOf(step) + 1]);
@@ -87,36 +82,6 @@ export function FirstRunGuide({
     }
   };
 
-  // Poll only while a download is actually running.
-  useEffect(() => {
-    if (step !== "model" || !preparation || preparation.state !== "running")
-      return;
-    const timer = setInterval(async () => {
-      try {
-        setPreparation(await api("/models/prepare"));
-      } catch (e) {
-        report(e);
-      }
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [step, preparation, report]);
-
-  const prepare = async () => {
-    try {
-      setPreparation(await api("/models/prepare", {}));
-    } catch (e) {
-      report(e);
-    }
-  };
-
-  const share =
-    preparation?.total > 0
-      ? Math.min(
-          100,
-          Math.round((preparation.downloaded / preparation.total) * 100),
-        )
-      : 0;
-
   return (
     <Modal
       title="Welcome to Research Workbench"
@@ -142,8 +107,7 @@ export function FirstRunGuide({
         <>
           <p>
             <FolderOpen size={15} /> Your research files stay on this computer,
-            in a folder you choose. It is kept when you upgrade or remove the
-            application.
+            in a folder you choose. Most students keep the suggested folder.
           </p>
           <Field
             label="Research folder"
@@ -169,10 +133,11 @@ export function FirstRunGuide({
       {step === "keys" && (
         <>
           <p>
-            <KeyRound size={15} /> NewsAPI and OpenAI need your own accounts and
-            keys. Hugging Face classification runs on this computer and needs no
-            key.
+            <KeyRound size={15} /> Collecting news needs a NewsAPI key, and AI
+            extraction needs an OpenAI key. Use your own accounts.
+            Classification runs on this computer and needs no key.
           </p>
+          <KeyLinks />
           <Field label="NewsAPI key">
             <input
               type="password"
@@ -215,48 +180,20 @@ export function FirstRunGuide({
         <>
           <p>
             <BrainCircuit size={15} /> The default classifier{" "}
-            <code>{bootstrap.default_classifier}</code> downloads the first time
-            you use it. Preparing it now avoids waiting in class. It is kept on
-            this computer afterwards.
+            <code>{bootstrap.default_classifier}</code> (about 440 MB) downloads
+            the first time you use it. Preparing it now avoids waiting in class.
+            You can also do this later from the Classify step.
           </p>
-          {preparation && (
-            <div className="prepare-progress" role="status">
-              <progress
-                aria-label="Classifier download progress"
-                value={preparation.total ? preparation.downloaded : undefined}
-                max={preparation.total || 1}
-              />
-              <span>
-                {preparation.state === "running" && (
-                  <Loader2 className="spin" size={14} />
-                )}
-                {preparation.state === "completed" && (
-                  <CheckCircle2 size={14} />
-                )}
-                {preparation.phase}
-                {preparation.total
-                  ? ` · ${formatBytes(preparation.downloaded)} of ${formatBytes(preparation.total)} (${share}%)`
-                  : ""}
-              </span>
-              {preparation.error && (
-                <span className="inline-error">{preparation.error}</span>
-              )}
-            </div>
-          )}
-          <div className="row wrap">
-            <Button
-              onClick={prepare}
-              disabled={preparation?.state === "running"}
-            >
-              {preparation?.state === "failed" ||
-              preparation?.state === "cancelled"
-                ? "Try again"
-                : "Prepare FinBERT for class"}
-            </Button>
-            <Button variant="outline" onClick={finish}>
-              {preparation?.state === "completed" ? "Finish" : "Skip for now"}
-            </Button>
-          </div>
+          <ModelPreparation report={report}>
+            {(state) => (
+              <Button
+                variant={state === "completed" ? "default" : "outline"}
+                onClick={finish}
+              >
+                {state === "completed" ? "Finish" : "Skip for now"}
+              </Button>
+            )}
+          </ModelPreparation>
         </>
       )}
     </Modal>

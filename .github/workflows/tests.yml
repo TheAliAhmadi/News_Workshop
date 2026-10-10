@@ -79,6 +79,40 @@ jobs:
           path: frontend/out
           retention-days: 5
 
+  browser:
+    # The Playwright suite against a real backend and worker, as students use it.
+    name: Browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned dependencies (CPU-only PyTorch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-tested.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install interface dependencies and Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        working-directory: frontend
+        env:
+          PYTHON: python
+        run: npm run test:e2e:local
+
   student-start:
     # Exactly what a student runs: no preinstalled Python, uv, or Node required.
     name: Student start script (${{ matrix.os }})

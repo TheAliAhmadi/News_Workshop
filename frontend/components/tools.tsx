@@ -7,7 +7,7 @@ import {
   FlaskConical,
   Eye,
   Save,
-  ExternalLink,
+  KeyRound,
   Sparkles,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -23,10 +23,14 @@ import {
 import { ExtractionDesigner } from "./extraction-designer";
 import { SchemaBuilder, EnumBuilder } from "./schema-builder";
 import { Modal } from "./explorer";
+import { ModelPreparation } from "./model-preparation";
+import { KEY_NAMES, STEPS, stepOf } from "./steps";
 import { api, Entry, Ref, Root, pretty, query } from "@/lib/api";
 export type ToolProps = {
   visible?: boolean;
   tool: string;
+  /** Position in the workflow, shown as "Step n of 6". */
+  number: number;
   config: any;
   set: (c: any) => void;
   roots: Root[];
@@ -36,38 +40,7 @@ export type ToolProps = {
   refresh: () => Promise<void>;
   report: (e: unknown) => void;
   submitted: (job: any) => void;
-};
-const descriptions: Record<string, [string, string, string]> = {
-  news: [
-    "COLLECT",
-    "News API",
-    "Search a company and any topic. Save the articles you want to research.",
-  ],
-  hf: [
-    "CLASSIFY",
-    "Hugging Face / FinBERT",
-    "Choose your dataset, assemble the text, and run a text classifier.",
-  ],
-  llm: [
-    "EXTRACT",
-    "LLM structured extraction",
-    "Turn article text into your own structured research variables.",
-  ],
-  clean: [
-    "PREPARE",
-    "Clean a dataset",
-    "Normalize selected columns and remove duplicates in a new file.",
-  ],
-  review: [
-    "ASSESS",
-    "Human validation",
-    "Compare your judgments with any categorical fields in a coded dataset.",
-  ],
-  aggregate: [
-    "SUMMARIZE",
-    "Aggregate / export",
-    "Map your columns to publication-month mention measures.",
-  ],
+  openConnections: () => void;
 };
 export const defaults: Record<string, any> = {
   news: {
@@ -126,6 +99,7 @@ export const defaults: Record<string, any> = {
 export function Tool({
   visible = true,
   tool,
+  number,
   config: c,
   set,
   roots,
@@ -135,6 +109,7 @@ export function Tool({
   refresh,
   report,
   submitted,
+  openConnections,
 }: ToolProps) {
   const [columns, setColumns] = useState<string[]>([]);
   const [rowCount, setRowCount] = useState(0);
@@ -228,6 +203,10 @@ export function Tool({
     return tool === "llm"
       ? {
           ...config,
+          filter: config.filter && {
+            ...config.filter,
+            values: config.filter.values.filter(Boolean),
+          },
           schema: JSON.parse(schemaText),
           enums: JSON.parse(enumsText),
         }
@@ -315,16 +294,43 @@ export function Tool({
         ))}
     </select>
   );
-  const title = descriptions[tool];
+  const step = stepOf(tool);
+  const missingKey = step.needs && !bootstrap.connections[step.needs];
+  const combinedQuery = '"' + c.company + '" AND (' + c.query + ")";
   return (
     <div className="tool-page">
       <header className="tool-heading">
         <div className="eyebrow">
-          {title[0]} <span>/ INDEPENDENT TOOL</span>
+          Step {number} of {STEPS.length}
         </div>
-        <h1>{title[1]}</h1>
-        <p>{title[2]}</p>
+        <h1>{step.heading}</h1>
+        <p>{step.intro}</p>
+        {tool !== "news" && (
+          <p className="tool-independence">
+            Works with any CSV or JSON file; earlier steps are optional.
+          </p>
+        )}
       </header>
+      {missingKey && (
+        <div className="callout warning" role="note">
+          <KeyRound size={18} />
+          <div>
+            <strong>This step needs your {KEY_NAMES[step.needs!]} key.</strong>
+            <p>Add it once under Connections; it stays on this computer.</p>
+          </div>
+          <Button size="sm" onClick={openConnections}>
+            Add key
+          </Button>
+        </div>
+      )}
+      {tool === "hf" && (
+        <Section
+          title="Prepare the classifier"
+          detail="FinBERT-ESG (about 440 MB) downloads once, then runs on this computer. Do this before class so the first run starts right away."
+        >
+          <ModelPreparation report={report} />
+        </Section>
+      )}
       {tool !== "news" && (
         <Section
           number="01"
@@ -375,16 +381,19 @@ export function Tool({
             </div>
             <div className="query-preview">
               <div>
-                <span>API QUERY</span>
-                <span>
-                  {('"' + c.company + '" AND (' + c.query + ")").length} / 500
-                  characters
-                </span>
+                <span>Search sent to NewsAPI</span>
+                {c.company && c.query && (
+                  <span
+                    className={combinedQuery.length > 500 ? "over-limit" : ""}
+                  >
+                    {combinedQuery.length} / 500 characters
+                  </span>
+                )}
               </div>
               <code>
                 {c.company && c.query
-                  ? '"' + c.company + '" AND (' + c.query + ")"
-                  : "Enter a company and query to preview your request."}
+                  ? combinedQuery
+                  : "Enter a company and query to preview your search."}
               </code>
             </div>
           </Section>
@@ -485,9 +494,9 @@ export function Tool({
               </div>
             </details>
             <p className="hint">
-              NewsAPI coverage varies by publisher and plan. Suggested
-              publishers do not guarantee matching articles. The directory lists
-              a subset of available sources.
+              Coverage varies by publisher and plan. The free plan only searches
+              about the last month of articles, so leave the dates empty or keep
+              them recent.
             </p>
             <div className="grid3">
               <Field label="From">
@@ -540,7 +549,10 @@ export function Tool({
                   <option value="popularity">Popularity</option>
                 </select>
               </Field>
-              <Field label="Maximum results">
+              <Field
+                label="Maximum results"
+                hint="The free NewsAPI plan returns up to 100."
+              >
                 <input
                   type="number"
                   min={1}
@@ -1370,7 +1382,7 @@ export function Tool({
           ) : (
             <>
               <Button
-                disabled={busy || (tool !== "news" && !c.input)}
+                disabled={busy || !!missingKey || (tool !== "news" && !c.input)}
                 onClick={() => start()}
               >
                 <Play size={14} />
@@ -1385,14 +1397,16 @@ export function Tool({
               {tool === "llm" && (
                 <Button
                   variant="outline"
-                  disabled={busy || !c.input}
+                  disabled={busy || !!missingKey || !c.input}
                   onClick={() => start(true)}
                 >
                   <FlaskConical size={15} /> Test one row
                 </Button>
               )}
               <span className="hint">
-                Progress appears in the Jobs panel below.
+                {missingKey
+                  ? `Add your ${KEY_NAMES[step.needs!]} key first.`
+                  : "Progress appears under Jobs at the bottom."}
               </span>
             </>
           )}

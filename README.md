@@ -26,7 +26,7 @@ Then:
 
 1. Enter your NewsAPI and/or OpenAI keys under **Connections**. **Remember on this computer** saves them in your system keychain or Credential Manager — never in the project files.
 2. Optionally use **Prepare FinBERT for class** so the classifier downloads once.
-3. Upload or attach data, run a tool, and watch jobs in the bottom panel.
+3. Work through the numbered steps in the sidebar: **Collect, Clean, Classify, Extract, Validate, Aggregate**. Each step also works on its own with any CSV or JSON file, and progress appears under **Jobs**.
 
 Illustrated steps and troubleshooting: [Student guide](docs/student-guide.md).
 
@@ -54,16 +54,16 @@ If the Releases page has no assets yet, the first packaged build has not been pu
 
 Intel Macs and native Windows on ARM are not included in this release. Classification runs on the CPU; no NVIDIA driver is required.
 
-## Tools
+## Workflow steps
 
-| Workspace | Independent operation |
+| Step | What it does |
 | --- | --- |
-| News API | Combine a company name and unrestricted query with AND, choose suggested or discovered publisher domains, and save raw Everything results. |
-| Hugging Face / FinBERT | Choose any CSV/JSON dataset, order the text sections, select a compatible classifier, and save original columns with native labels, scores, exact input, revision, and truncation metadata. |
-| LLM extraction | Describe any extraction task in Design with AI to generate and refine instructions, enums, and a nested schema, or edit them yourself. Choose a dataset and model, test one row, then process selected rows. |
-| Clean | Normalize selected columns, optionally lowercase/drop empty rows, and deduplicate using selected keys. |
-| Human validation | Sample any coded file, enter categorical human labels, and save agreement results. The five-row ESG exercise is a preset. |
-| Aggregate / export | Map your columns into the existing firm/publication-month mention measures. |
+| 1. Collect | Combine a company name and unrestricted query with AND, choose suggested or discovered publisher domains, and save raw Everything results. |
+| 2. Clean | Normalize selected columns, optionally lowercase/drop empty rows, and deduplicate using selected keys. |
+| 3. Classify | Choose any CSV/JSON dataset, order the text sections, select a compatible classifier, and save original columns with native labels, scores, exact input, revision, and truncation metadata. |
+| 4. Extract | Describe any extraction task in Design with AI to generate and refine instructions, enums, and a nested schema, or edit them yourself. Choose a dataset and model, test one row, then process selected rows. |
+| 5. Validate | Sample any coded file, enter categorical human labels, and save agreement results. The five-row ESG exercise is a preset. |
+| 6. Aggregate | Map your columns into the existing firm/publication-month mention measures. |
 
 ## Connections and data locations
 
@@ -102,4 +102,4 @@ Browser tests: start the local app, then `npx playwright install chromium && npm
 
 ## Releases
 
-GitHub Actions builds Mac and Windows packages and opens a **draft** release with installers, checksums, and third-party notices. Public student downloads wait until installers are [signed and verified](docs/publisher-signing.md). The release plan is in `PLAN_release.md`.
+GitHub Actions builds Mac and Windows packages and opens a **draft** release with installers, checksums, and third-party notices. Public student downloads wait until installers are [signed and verified](docs/publisher-signing.md). The release plan is in [docs/history/PLAN_release.md](docs/history/PLAN_release.md).
