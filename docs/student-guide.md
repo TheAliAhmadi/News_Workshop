@@ -24,6 +24,10 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/The
 
 This downloads the project into a `News_Workshop` folder in your home folder and starts it. Running the same line again later updates the program and keeps your research files and keys.
 
+### Or: let an AI coding assistant do Option A
+
+If you use an AI assistant that can run commands on your computer, such as Claude Code, Codex, Cursor's agent, or GitHub Copilot in Agent mode, copy the ready-made prompt from the [README](../README.md#student-quick-start) into it. It runs the same installer and gives you the workbench's address. It is told never to handle your API keys: you add those yourself under **Connections**.
+
 ### Option B — fork or clone with Git
 
 If you use Git or GitHub Desktop, fork [the repository](https://github.com/TheAliAhmadi/News_Workshop) (or clone it directly), then start it from the project folder:

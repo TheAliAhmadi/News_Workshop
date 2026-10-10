@@ -13,7 +13,8 @@ function Fail($message) {
     Write-Host "Setup stopped: $message" -ForegroundColor Red
     Write-Host 'Ask your instructor for help and include the message above.'
     # Keep a double-clicked window open so the message can be read.
-    if (-not $env:CI) { Read-Host 'Press Enter to close' }
+    # Not when run by CI or an AI assistant, where nobody can press Enter.
+    if (-not $env:CI -and -not [Console]::IsInputRedirected) { Read-Host 'Press Enter to close' }
     exit 1
 }
 

@@ -1,6 +1,6 @@
 # Research Workbench
 
-Classroom research tools for collecting news, classifying text, designing extraction schemas, cleaning data, human validation, and aggregation. The workbench runs on each student's own computer and opens in the browser. Every student enters **their own** API keys, which stay on their computer.
+A classroom workbench for three research steps: **collect** news articles with NewsAPI, **classify** them with a Hugging Face model, and **extract** structured data with an LLM. It runs on each student's own computer and opens in the browser, and every step can show the Python code behind it. Every student enters **their own** API keys, which stay on their computer.
 
 ## Student quick start
 
@@ -17,6 +17,22 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/The
 ```
 
 That downloads the project to a `News_Workshop` folder in your home folder, sets up Python and all packages inside it (first time: a few minutes), and opens the workbench in your browser. Nothing needs to be installed beforehand.
+
+**Prefer to let an AI assistant do it?** If you use an AI coding assistant that can run commands on your computer (Claude Code, Codex, Cursor's agent, or GitHub Copilot in Agent mode), copy this prompt into it:
+
+```text
+Set up and start the Research Workbench from https://github.com/TheAliAhmadi/News_Workshop on this computer.
+
+1. Check my computer first. It needs a Mac with Apple Silicon (M1 or newer) or 64-bit Windows 10/11. If it is anything else, stop and tell me.
+2. Run the project's official installer, exactly as written, in the background, because it keeps running once the workbench starts:
+   - Mac: curl -LsSf https://raw.githubusercontent.com/TheAliAhmadi/News_Workshop/main/scripts/install.sh | bash
+   - Windows (PowerShell): powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/TheAliAhmadi/News_Workshop/main/scripts/install.ps1 | iex"
+   It downloads the project into a News_Workshop folder in my home folder and installs everything it needs inside that folder. The first run takes a few minutes.
+3. Watch its output. When it prints "Research Workbench is ready at http://127.0.0.1:...", give me that address, open it in my browser if you can, and leave the workbench running.
+4. If a step fails, show me the exact message (lines starting with "Setup stopped" explain what went wrong) and explain it in plain words. Do not change the project's code, and do not install anything else on my computer without asking me.
+
+Never ask for, read, or type my API keys. I will add them myself in the workbench under Connections.
+```
 
 **Using Git instead?** Fork or clone this repository, then double-click **Start Workbench.command** (Mac) or **start.bat** (Windows) in the project folder.
 
