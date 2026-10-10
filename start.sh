@@ -6,8 +6,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-UV_HOME="$HOME/.local/bin"
-export PATH="$UV_HOME:$PATH"
+UV_HOME="${HOME}/.local/bin"
+export PATH="${UV_HOME}:${PATH}"
 
 fail() {
   echo
@@ -23,7 +23,7 @@ fi
 if ! command -v uv >/dev/null 2>&1; then
   echo "Installing uv (one time only)…"
   curl -LsSf https://astral.sh/uv/install.sh \
-    | env UV_INSTALL_DIR="$UV_HOME" UV_NO_MODIFY_PATH=1 sh \
+    | env UV_INSTALL_DIR="${UV_HOME}" UV_NO_MODIFY_PATH=1 sh \
     || fail "could not download uv. Check your internet connection."
 fi
 
@@ -33,12 +33,12 @@ else
   wanted=$(sha256sum requirements-tested.txt | cut -d' ' -f1)
 fi
 stamp=.venv/.requirements-sha256
-if [ ! -x .venv/bin/python ] || [ "$(cat "$stamp" 2>/dev/null)" != "$wanted" ]; then
+if [ ! -x .venv/bin/python ] || [ "$(cat "${stamp}" 2>/dev/null)" != "${wanted}" ]; then
   echo "Preparing Python and packages (first run takes a few minutes)…"
   uv venv --quiet --clear --python 3.12 .venv || fail "could not create the Python environment."
   uv pip install --python .venv/bin/python -r requirements-tested.txt \
     || fail "could not install packages. Check your internet connection and run this again."
-  echo "$wanted" > "$stamp"
+  echo "${wanted}" > "${stamp}"
 fi
 
 [ -f frontend/out/index.html ] || fail "the interface files are missing. Download the project again."
