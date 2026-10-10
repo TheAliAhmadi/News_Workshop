@@ -2,7 +2,7 @@
 
 ## Runtime
 
-`Launch Workshop.command` starts `python -m workbench`, binding Uvicorn to `127.0.0.1:8765`. FastAPI serves both `/api` and the Next.js static export in `frontend/out`. The browser has no filesystem or provider credentials. The project has no required Node.js runtime, hosted services, sequential run controller, or executable student-code interface.
+`start.sh` / `start.bat` prepare `.venv` with uv and start `python -m workbench`, binding Uvicorn to `127.0.0.1:8765`. FastAPI serves both `/api` and the Next.js static export in `frontend/out`. The browser has no filesystem or provider credentials. The project has no required Node.js runtime, hosted services, sequential run controller, or executable student-code interface.
 
 `frontend/components/workbench.tsx` manages persistent tool/file tabs, explorer state, connections, and polling. Tool components retain independent form configurations. `explorer.tsx` implements the tree, previews, and configuration editing. `fields.tsx` supplies file/column/destination controls; `schema-builder.tsx` maintains the same JSON representation used by the schema editor. Radix/shadcn components supply buttons and accessible dialogs.
 
@@ -41,7 +41,7 @@ Human review is a direct independent API operation with an input hash, determini
 - `.workbench/`: private current root registry, requests, input snapshots, statuses, and checkpoints.
 - `.cache/huggingface/`: local model downloads; preserved across launches.
 - `.recovery/`: archived previous-installation state and verification history.
-- `frontend/out/`: distributable static frontend; rebuild after frontend source changes.
+- `frontend/out/`: committed static frontend so students need no Node.js; rebuild and commit after frontend source changes (CI checks the source stamp).
 - `tests/`, `frontend/e2e/`: backend regressions and browser acceptance flows.
 
 The original project location is not a runtime dependency. The launcher ignores inherited workbench path overrides from older installations. `.venv` and `frontend/node_modules` are installed in this project; rebuild the virtual environment if distributing to a different machine.

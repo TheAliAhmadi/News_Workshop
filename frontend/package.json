@@ -4,10 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build --webpack",
+    "build": "next build --webpack && node scripts/source-stamp.mjs",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
-    "format": "prettier --write app components lib e2e"
+    "format": "prettier --write app components lib e2e",
+    "check:build": "node scripts/source-stamp.mjs --check"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.0",
